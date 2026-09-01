@@ -6,7 +6,8 @@ tell**, which is most of the time on most scenarios.
 
 > See how your floor moves, not just your ceiling.
 
-Everything runs on your own machine. No account, no upload, no network calls.
+Everything runs on your own machine. No account, and your run data is never
+uploaded anywhere — it is read from your stats folder and stays there.
 
 ---
 
@@ -88,7 +89,6 @@ Requires **Python 3.8+**. No pip install, no dependencies — standard library o
 
 | File | Answers |
 |---|---|
-| [HANDOFF.md](HANDOFF.md) | Where do I start? Read this first. |
 | [CALCULATIONS.md](CALCULATIONS.md) | What does each number actually compute? |
 | [MEASUREMENT-SPEC.md](MEASUREMENT-SPEC.md) | What are we allowed to claim, and why? |
 | [CHART-SCALING.md](CHART-SCALING.md) | Why is the chart that size and that scale? |
@@ -100,16 +100,47 @@ Requires **Python 3.8+**. No pip install, no dependencies — standard library o
 
 ## Releases
 
-Each batch of work is frozen into `releases/vX.Y.Z/` with its own port, so an old
-build keeps working untouched while development continues.
+Each batch of work is frozen into `releases/vX.Y.Z/` with its own port and its own
+config, so an old build keeps working untouched while development continues.
+
+**That is the point of it.** If a new build has a bug the previous one did not,
+you do not have to wait for a fix — open the older release and carry on. They run
+side by side on different ports, they share nothing, and a release you already
+have can never be changed by later work. A release starts with no stats folder
+set and asks on first launch, exactly like a fresh install.
 
 ```bash
-python release.py          # next patch version
-python release.py 0.1.0    # explicit
+python release.py          # next feature release  (0.3.0 -> 0.4.0)
+python release.py --patch  # next fix release      (0.3.0 -> 0.3.1)
+python release.py --verify # what each build on disk actually is
 ```
 
-The footer of every page prints its build and port, so you always know which one
-you are looking at.
+The footer of every page prints its build hash and port, so you always know which
+one you are looking at.
+
+### Two downloads, not twenty
+
+Only two releases are published at a time:
+
+| Channel | What it is | GitHub |
+|---|---|---|
+| **Base** | The build that has been used enough to trust. Start here. | marked *Latest* |
+| **Beta** | The newest build. New features arrive here first. | marked *Pre-release* |
+
+A new version replaces **beta**. **Base** stays where it is until a beta has
+proven itself and is promoted, at which point the old base is retired. So there
+is always one boring option and one current option, and never a wall of
+half-remembered version numbers to choose between.
+
+`publish.py` implements exactly that — see `--help`. It refuses to do anything
+without `--yes`, so it cannot publish by accident.
+
+---
+
+## Licence
+
+[MIT](LICENSE). Use it, change it, ship it, sell it — just keep the copyright
+notice. No warranty.
 
 ---
 
@@ -117,4 +148,7 @@ you are looking at.
 
 **Orb Eater** did the thinking, **Claude** did everything else.
 
-Inspired by [Evxl.app](https://evxl.app/), Reflek's, Corpserf dashboard and Kova.
+Inspired by [Evxl.app](https://evxl.app/),
+[Reflek’s](https://refleksapp.com/),
+[Corporate Serf Dashboard](https://github.com/MingoDynasty/Corporate-Serf-Dashboard)
+and [Kova](https://pyvno.xyz/).

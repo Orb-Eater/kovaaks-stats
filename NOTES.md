@@ -416,3 +416,43 @@ window class and close it:
 a real Cancel. `scratchpad/test_picker.py` in the session notes does this for all
 four cases: picker direct, full `native_pick_folder`, every picker failing, and a
 picker succeeding.
+
+## Publishing: base and beta
+
+`releases/` is gitignored, so "what people download" is **GitHub Releases**, not
+folders in the repo. `publish.py` keeps exactly two live at any time:
+
+    base   the build that has been used enough to trust   -> GitHub "Latest"
+    beta   the newest build                               -> GitHub "Pre-release"
+
+A new version replaces **beta**. **Base** only moves when a beta is promoted
+(`--promote`), which deletes the previous base. Two options, one boring and one
+current, instead of a list nobody can choose from.
+
+The tags are the *channel names* (`base`, `beta`), not version numbers, so the
+download URL for "the current beta" is stable. The version lives in the release
+title and body; `WHATS-NEW.txt` becomes the release notes automatically.
+
+`publish.py` does nothing without `--yes` - it prints the `gh` commands it would
+run and exits. It never pushes commits: that is `git push`, deliberately separate.
+
+**Nothing personal ships.** `make_zip` drops `cache/`, `logs/`, `config.json`,
+`__pycache__`, `.browser-opened` and `HANDOFF.md`, then writes a fresh
+`config.json` with an empty `stats_folder`. Belt and braces: `release.py` already
+writes a blank one at freeze time. It used to copy the working copy's folder,
+which baked one person's path into every build and overrode the choice the user
+of that release had already made.
+
+## What the app promises about privacy
+
+It used to say "no network calls". That stopped being true the moment outbound
+API calls were approved (playlist share codes resolve server-side against
+KovaaK's). The claim in README and HANDOFF is now the one that survives contact
+with the roadmap:
+
+> your run data is never uploaded anywhere - it is read from your stats folder
+> and stays there.
+
+Keep it that way. A feature may call out to fetch *reference* data - playlists,
+benchmark thresholds, leaderboards - but nothing derived from the user's own runs
+goes with it. If that ever has to change, the wording changes first.

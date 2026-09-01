@@ -11,7 +11,9 @@ or committed — see "Next up").
 ## What this is
 
 A local KovaaK's aim-trainer statistics app. Python stdlib server + two static
-HTML front-ends, no dependencies, no network calls, no uploads.
+HTML front-ends, no dependencies, and run data is never uploaded anywhere.
+(Outbound API calls are now permitted where a feature needs them — see the
+playlist-import decision in the backlog. Until one ships, it makes none.)
 
 The point of the whole thing, in one line:
 
@@ -50,6 +52,8 @@ so you can tell at a glance which one you are looking at.
 | `app/styles.css` | All styling. |
 | `app/data/benchmarks.json` | 216 benchmarks consolidated from `L:\Claude\Benchmarks\`. |
 | `release.py` | Freezes the working copy into `releases/vX.Y.Z/` with its own port. |
+| `publish.py` | Publishes a frozen release to GitHub as **base** or **beta**. Does nothing without `--yes`. |
+| `LICENSE` | MIT. |
 | `start.bat` | Double-click launcher. |
 | `install.bat` | One-time setup: finds/installs Python, makes shortcuts. Not needed to run. |
 | `config.json` | Stats folder, port, scan interval. Per-install, never copied between builds. |

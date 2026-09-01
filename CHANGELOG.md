@@ -5,6 +5,57 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.3.1 - 2026-09-01
+
+**TL;DR - a release no longer carries anyone's stats folder, the project has a
+licence, and GitHub will only ever offer two downloads instead of a wall of them.**
+
+### Releases stop being personal
+
+- **A frozen release no longer inherits the stats folder** it was built from.
+  That baked one person's path into a build meant for anyone, and it silently
+  overrode whatever folder the user of that release had already chosen. A release
+  now starts blank and asks on first launch, offering the Steam folders it
+  detected - exactly like a fresh install. From then on its own `config.json` and
+  cache remember the choice.
+- The path was **cleared from v0.2.1 and v0.3.0**, which had already baked it in.
+- `publish.py` blanks it again on the way out, so it cannot leak even if a build
+  is zipped from a folder that had one.
+
+### Two downloads, not twenty
+
+- **`publish.py`** - publishes a frozen release to GitHub on one of two channels:
+  **base** (the build that has been used enough to trust, marked *Latest*) and
+  **beta** (the newest build, marked *Pre-release*). A new version replaces beta;
+  base does not move until a beta is promoted with `--promote`, which retires the
+  previous base.
+- Tags are stable per channel, so the download link for "the current beta" never
+  changes.
+- **It does nothing without `--yes`.** Without it, it prints the exact `gh`
+  commands it would run and exits. It never pushes commits.
+- Published zips exclude `cache/`, `logs/`, `config.json` and `HANDOFF.md` -
+  verified: 21 entries, 219 KB, blank stats folder, no state leaks.
+
+### Licence
+
+- **MIT.** Use it, change it, ship it, sell it; keep the copyright notice; no
+  warranty. Deliberately not AGPL - that is Corporate Serf Dashboard's licence,
+  and nothing has been taken from it.
+
+### Documentation
+
+- `HANDOFF.md` is **out of the README's documentation table and out of published
+  zips**. It is internal notes for whoever picks the project up, not something to
+  point a stranger at.
+- The Releases section now says *why* old builds are kept: **if a new build has a
+  bug the previous one did not, open the previous one and carry on.**
+- **The "no network calls" claim is gone**, because outbound API calls are now
+  approved and playlist import will make one. Replaced with the promise that is
+  actually true and worth making: *your run data is never uploaded anywhere.*
+- `README` release commands corrected - no-argument `release.py` gives the next
+  **minor**, not patch - and the credits now carry real links, with Corporate
+  Serf Dashboard under its actual name.
+
 ## v0.3.0 - 2026-09-01
 
 **TL;DR - "not enough baseline yet" almost never shows a blank dash any more.

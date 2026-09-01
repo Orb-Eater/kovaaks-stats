@@ -14,6 +14,13 @@ v0.1.1 — not 0.0.10, 0.0.11. Nothing already released was renumbered.
 its own. Type your answer after it and I will pick it up next session — no need
 to reply in chat. Anything without a trailing `=` is mine to get on with.
 
+**More than one Claude session works on this folder.** They share the filesystem
+and git but *not* their conversations, so this file is the only handover between
+them — and it can go stale when another session ships something without updating
+it. Before trusting a question here, check reality: `git log --oneline`,
+`git remote -v`, `ls releases/`. That is how the GitHub question below ended up
+describing work that had already been done.
+
 ---
 
 ## Shipped
@@ -246,11 +253,23 @@ Your words: *"We need to remove all the text clutter everywhere."*
 
 ## Batch 9 — layout and calendar → v0.4.0
 
+- [ ] **Restart counter in the side space** (your answer: not in the runs list).
+      Its own small readout, and **only rendered when "log every run" is on in
+      KovaaK's** — with the setting off no restart ever reaches the stats folder,
+      so a permanent "0 restarts" would be a lie rather than a measurement.
+      Detect it the same way the count works: if the history contains any
+      zero-length scored run, the setting is on.
+
 - [ ] Widen the page: **1920px default, 2560px cap** (your answer). Current cap is
       1180px. 1200px must stay usable; **5120px full support eventually**.
 - [ ] **Top menu bar** so 1200px users can still reach the calendar view.
 - [ ] **Month calendar** in the newly free side space: current month + the 4
-      previous, each with the % increase inside that month.
+      previous. Per month, **Typical (trimmed mean) change only** — Ceiling and
+      Floor need more runs than one month usually holds, so showing them would be
+      three numbers where only one is trustworthy.
+- [ ] Alongside it, the fun facts: **"X new scenarios tried!"** — scenarios with
+      **0 runs before that month and >=1 during it** — plus a PB count and the
+      avg %.
 - [ ] **Session bar moves to the right side.**
 - [ ] **Live "Time in KovaaK's".** Today it only updates when a run lands. Tick it
       from the PC clock and re-validate against the last run once a minute.
@@ -289,10 +308,17 @@ Your new xlsx/CSV export replaces it.
 - [ ] Strengths and weaknesses summary — **use z-scores, not % change**
       ([CHART-SCALING.md §7](../CHART-SCALING.md))
 - [ ] Baseline cm set to 45–50cm for now
-- [ ] **Playlist import**
-- [ ] **Viscose raw Excel sheet** ingest — files received, in
-      `L:\Claude\Benchmarks\Viscose s2\` (xlsx + four CSVs). Column layout
-      question is in Open questions.
+- [ ] **Rename the Benchmarks tab to "Scenario testing"**, holding the Viscose
+      benchmarks. The 216 bundled benchmarks are replaced wholesale, not merged.
+- [ ] **Viscose raw sheet ingest** from `L:\Claude\Benchmarks\Viscose s2\`
+      (xlsx + Easier / Medium / Hard / Expert CSVs). **Ignore the "matty" rank**
+      entirely. These replace the whole benchmark dataset, which also retires the
+      broken Medium file below.
+- [ ] **Playlist import via share code** (e.g. `KovaaKsPlunderingOlivegreenClutch`).
+      Outbound API calls are approved, so this resolves server-side against
+      KovaaK's rather than needing an offline export. First feature to make a
+      network call — the README's privacy wording was updated to match, and it
+      must stay true: run data still never leaves the machine.
 
 ## Batch 12 — timeframe comparison tools → v0.7.0
 
@@ -322,64 +348,62 @@ Your new xlsx/CSV export replaces it.
 Every one of these ends in a bare **`=`**. Write your answer after it; I read them
 at the start of the next session. Answered ones move to *Answered* at the bottom.
 
-- **[?] GitHub push — needs you.** Everything is committed and tagged locally.
-  The only missing piece is authentication, which I must not do on your behalf.
-  Two commands, once, run in `L:\Claude\KovaaksStats`:
-
-      gh auth login
-      gh repo create kovaaks-stats --private --source=. --remote=origin --push
-
-  Then `git push --tags`. Repo name `kovaaks-stats` — say if you want another.
+- **[?] Nothing is pushed, and pushing is on hold.** The repo exists at
+  `https://github.com/Orb-Eater/kovaaks-stats` (private) with the first commits
+  up. Still local: `master` is **ahead** by the v0.3.0 and v0.3.1 commits, and
+  **no tags are on the remote**. One command sends both when you want it:
+  `git push origin master --follow-tags`.
+  **Standing instruction from 2026-09-01: do not push without being asked.**
   =
 
-- **[?] Licence.** No LICENSE file yet. Correct for a private repo, but it
-  matters the day it goes public: with no licence nobody may legally use or fork
-  it. MIT (do what you like, keep the credit) is the usual choice for a tool like
-  this. **Not** AGPL — that is Corporate Serf Dashboard's licence, not ours, and
-  we have deliberately taken nothing from it.
+- **[?] Which build is base, which is beta?** `publish.py` is built and ships two
+  GitHub releases at a time (see README, "Two downloads, not twenty"). Nothing has
+  been published yet. My read of what you said: **v0.3.0 becomes base** once it is
+  pushed, and the next feature release becomes beta. Confirm, or name them.
   =
 
-- **[?] Your dev stats folder is pointed at `C:\Users\Toms\Downloads\eden csv`**
-  (1500 runs), set at 05:25 on 2026-09-01 — the session log says that was you,
-  not me, so I left it alone. Is that deliberate (analysing someone else's CSVs)
-  or do you want it back on your own Steam folder? Frozen releases keep their own
-  config and are unaffected; every figure I have quoted came from the Steam folder.
+- **[?] Your dev stats folder is `C:\Users\Toms\Downloads\eden csv`** (1500
+  runs), set by you at 05:25 on 2026-09-01. Deliberate, or back to Steam? New
+  releases no longer inherit it, and I cleared it out of v0.2.1 and v0.3.0, so
+  this only affects the working copy at `L:\Claude\KovaaksStats`.
   =
 
-- **[?] Viscose sheet columns.** Found `L:\Claude\Benchmarks\Viscose s2\`
-  (xlsx plus Easier / Medium / Hard / Expert CSVs). The extra **"matty"** rank
-  above eclipse — a real rank, or a bonus tier shown separately? And should these
-  replace the bundled JSON for Viscose S2, or sit beside it?
+- **[?] What does "log every run" turn into for other people?** The restart
+  counter only appears when the setting is on. For someone who has it off, do you
+  want the app to *suggest* enabling it (with the caveat that it writes a CSV per
+  restart and clutters other tools), or stay silent?
   =
 
-- **[?] Playlist share codes.** `KovaaKsPlunderingOlivegreenClutch` is resolved
-  server-side by KovaaK's, so supporting it means an outbound HTTP call — which
-  breaks the "no network calls" promise the app currently makes. (a) allow one
-  clearly-labelled call, only when you paste a code; (b) you export the playlist
-  to a file and I read it offline; (c) paste the scenario names. Which?
-  =
-
-- **[?] Calendar % metric.** You said "overall increase vs previous month, avg %,
-  a count of PBs, and new scenarios played". Still need: is "overall increase"
-  the Typical (trimmed mean) change alone, or the same Ceiling/Typical/Floor
-  split the cards use? Typical is the only one that survives a single month's
-  run count.
-  =
-
-- **[?] Show restarts in the runs list?** The 5 real restarts are excluded from
-  every statistic and counted in the session panel. Do you also want a toggle
-  that *displays* them among the runs?
+- **[?] Viscose: which difficulties ship?** Easier / Medium / Hard / Expert are
+  all in the export. All four, or a subset? And is "Scenario testing" a rename of
+  the existing tab or a new page with benchmarks kept somewhere else?
   =
 
 ---
 
 ## Answered
 
+- **Calendar metric** → **Typical (trimmed mean) change** per month, plus fun
+  facts: new scenarios tried (0 runs before the month, >=1 during), PB count,
+  avg %. *Batch 9.*
+- **Viscose "matty" rank** → ignore it. The new files **replace the whole
+  benchmark dataset**, and the Benchmarks tab becomes **"Scenario testing"**.
+  *Batch 11.*
+- **API calls** → allowed. Playlist share codes resolve server-side against
+  KovaaK's; no offline export needed. Privacy wording in README/HANDOFF corrected
+  to the claim that is actually true: run data never leaves the machine.
+- **Restarts in the runs list** → no. Own counter in the side space, shown only
+  when "log every run" is enabled. *Batch 9.*
+- **Licence** → **MIT**, `LICENSE` written. Keeps the credit, no warranty,
+  anyone may use or fork it.
+- **Releases must not carry a personal stats folder** → `release.py` now writes a
+  blank one, and the path was cleared from v0.2.1 and v0.3.0. Published zips are
+  blanked again on the way out.
+- **GitHub repo** → created private as `Orb-Eater/kovaaks-stats` by a separate
+  session. Push work is on hold above.
 - **X.com handle** → `https://x.com/OrbEater_`, X logo, clickable. *v0.0.9.*
 - **Site width** → 1920 default, 2560 cap now, 5120 eventually. *Batch 9.*
-- **Versioning** → switch now, batch = MINOR bump. *v0.1.0.* Note: 0.1.0 → 0.2.0,
-  **not** 0.0.10 — those digits are independent numbers, not decimals. A fix
-  between batches takes the last digit, which is what v0.2.1 is.
+- **Versioning** → batch = MINOR bump. *v0.1.0.* 0.1.0 -> 0.2.0, **not** 0.0.10.
 - **Confetti** → PB after 5+ prior runs, 10s, blinking. *v0.0.9.*
 - **Run resets** → detectable without score; excluded from the graph, counted in
   the session panel, RNG warning above 5. *v0.1.0.*
@@ -388,7 +412,6 @@ at the start of the next session. Answered ones move to *Answered* at the bottom
   Explorer window. *v0.2.1.*
 - **ADHD mode wording** → "START FOCUSING ON KOVAAK'S AND STOP BEING ON TIKTOK".
   *Batch 13.*
-- **Viscose raw sheet** → xlsx + CSV received (unfiltered draft, "matty" rank,
-  scenario names out of order). *Batch 11*, follow-up above.
 - **Benchmark JSON** → the malformed `STS 2 - Pokeball & Flicker.json` was never
-  repaired, only made parseable; ~30 scenarios were lost. Docs corrected.
+  repaired, only made parseable; ~30 scenarios were lost. The Viscose replacement
+  retires it.

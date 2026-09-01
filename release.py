@@ -23,7 +23,9 @@ builds can never land on the same origin and share a browser cache or its
 localStorage. Releases made before v0.1.0 keep the sequential ports already
 written into their config.json.
 
-Your stats folder choice is copied over, so a release starts ready to go.
+A release starts with no stats folder set, exactly like a fresh install: it
+offers the Steam folders it detected and remembers your choice in its own
+config.json. Nothing personal is baked into a build.
 """
 
 import hashlib
@@ -49,7 +51,7 @@ STAT_FUNCS = [
     "computeCmClusters", "computeCmDeltas", "getActivePool", "chartScale",
 ]
 
-COPY_FILES = ["server.py", "start.bat", "install.bat", "README.md", "HANDOFF.md",
+COPY_FILES = ["server.py", "start.bat", "install.bat", "LICENSE", "README.md", "HANDOFF.md",
               "CHANGELOG.md", "CALCULATIONS.md", "MEASUREMENT-SPEC.md",
               "CHART-SCALING.md", "NOTES.md"]
 COPY_DIRS = ["app"]
@@ -270,14 +272,14 @@ def main():
                             ignore=shutil.ignore_patterns(*SKIP))
 
     port = port_for(version)
-    folder = ""
-    try:
-        with open(os.path.join(ROOT, "config.json"), encoding="utf-8") as f:
-            folder = json.load(f).get("stats_folder", "")
-    except Exception:
-        pass
+    # Deliberately blank. A release used to inherit whatever stats folder the
+    # working copy happened to be pointing at, which is one person's path baked
+    # into a build meant for anyone - and it silently overrode the folder the
+    # user had already chosen for that release. Starting empty means the app does
+    # what it does on a fresh install: offers the Steam folders it detected, and
+    # remembers the choice in this release's own config.json from then on.
     with open(os.path.join(dest, "config.json"), "w", encoding="utf-8") as f:
-        json.dump({"stats_folder": folder, "port": port,
+        json.dump({"stats_folder": "", "port": port,
                    "scan_interval_seconds": 5, "open_browser": True}, f, indent=2)
     with open(os.path.join(dest, "VERSION"), "w", encoding="utf-8") as f:
         f.write(version + "\n")

@@ -161,9 +161,31 @@ than guessed, because a ±2s window would have deleted 743 genuine NeverMiss run
       currently they are simply invisible outside the session panel. Worth it?
       =
 
+### Batch 7 — zero-score runs, declutter toggles, installer, GitHub → v0.2.0
+- [x] **Zero-score runs visible but never counted.** v0.1.0 hid every
+      zero-length run as a restart; a NeverMiss 0 is a real run. Split into
+      `runVisible` (did you play it — only restarts fail, 5 total) and
+      `runUsable` (may it enter a %, adds `score > 0`, 176 excluded).
+- [x] Zeros drawn as hollow marks on the axis floor, out of the scale/band/lines
+- [x] `+N scored 0` on the scenario header
+- [x] Chart end labels spread to a minimum gap with leader lines, in the
+      right-hand margin that was empty
+- [x] "How to read this" panel gets a wider column and larger text
+- [x] **Show explanation** toggle on the Window / Compare-vs paragraph
+- [x] **Show figure explanation** toggle on the headline caveats
+- [x] "Follow current scenario" hides with the session panel
+- [x] Footer credit reads **Corporate Serf Dashboard** (its actual name)
+- [x] `NOTES.md` no longer implies the malformed benchmark JSON was *repaired* —
+      it was edited until it parsed, and ~30 scenarios were lost
+- [x] **`install.bat`** — finds or winget-installs Python, Desktop + Start Menu
+      shortcuts. Not required to run the app.
+- [x] Git repository prepared, `.gitignore` keeps `config.json` (your stats
+      folder path) and `releases/` out; tagged `v0.2.0`
+- [ ] **Push to GitHub** — needs `gh auth login` from you; see below
+
 ---
 
-## Batch 7 — UI declutter → v0.2.0
+## Batch 8 — the rest of the UI declutter → v0.3.0
 
 Your words: *"We need to remove all the text clutter everywhere."*
 
@@ -190,7 +212,7 @@ Your words: *"We need to remove all the text clutter everywhere."*
 - [ ] **Popup over the session panel when active play is under 40%** *(moved here
       from Batch 8 — it belongs with the session panel work)*
 
-## Batch 8 — layout and calendar → v0.3.0
+## Batch 9 — layout and calendar → v0.4.0
 
 - [ ] Widen the page: **1920px default, 2560px cap** (your answer). Current cap is
       1180px. 1200px must stay usable; **5120px full support eventually**.
@@ -201,7 +223,7 @@ Your words: *"We need to remove all the text clutter everywhere."*
 - [ ] **Live "Time in KovaaK's".** Today it only updates when a run lands. Tick it
       from the PC clock and re-validate against the last run once a minute.
 
-## Batch 9 — score-by-cm analysis → v0.4.0
+## Batch 10 — score-by-cm analysis → v0.5.0
 
 Rules live in `planning/scenario-analysis/categories.md` as plain text so you can
 edit them without touching code.
@@ -217,7 +239,7 @@ edit them without touching code.
 - [ ] Extremes (<25cm, >80cm) excluded by default, toggleable
 - [ ] "Work in progress" disclaimer pointing at the baseline page
 
-## Batch 10 — baseline page, benchmarks and imports → v0.5.0
+## Batch 11 — baseline page, benchmarks and imports → v0.6.0
 
 Scenario list is a plain document in `planning/baseline/scenarios.md`.
 
@@ -238,7 +260,7 @@ Your new xlsx/CSV export replaces it.
 - [ ] **Playlist import**
 - [ ] **Viscose raw Excel sheet** ingest — [?] need the file and its layout
 
-## Batch 11 — timeframe comparison tools → v0.6.0
+## Batch 12 — timeframe comparison tools → v0.7.0
 
 - [ ] Compare an arbitrary timeframe against the baseline sitting behind it
 - [ ] Compare month X vs the previous month
@@ -247,7 +269,7 @@ Your new xlsx/CSV export replaces it.
       [MEASUREMENT-SPEC.md §7](../MEASUREMENT-SPEC.md) — the 7-day view must stop
       using the word "improvement"
 
-## Batch 12 — personal calibration and ADHD mode → v0.7.0
+## Batch 13 — personal calibration and ADHD mode → v0.8.0
 
 - [ ] **Warm-up calibration on first launch.** `WARMUP_DROP: 2` is a guess, and
       the spec says time constants for this task are unknown and must be estimated
@@ -266,43 +288,64 @@ Your new xlsx/CSV export replaces it.
 Every one of these ends in a bare **`=`**. Write your answer after it; I read them
 at the start of the next session. Answered ones move to *Answered* at the bottom.
 
-- **[?] Show restarts in the runs list?** They are excluded from every statistic
-  and counted in the session panel. Do you also want a toggle that *displays*
-  them among the runs so you can look at what you bailed out of?
+- **[?] GitHub push — needs you.** Everything is committed and tagged locally;
+  the only missing piece is authentication, which I must not do on your behalf.
+  Two commands, once:
+
+      gh auth login
+      gh repo create kovaaks-stats --private --source=. --remote=origin --push
+
+  Run them in `L:\Claude\KovaaksStats`. Repo name `kovaaks-stats` — say if you
+  want something else, and whether I should push the tag too (`git push --tags`).
   =
 
-- **[?] Viscose sheet columns.** Found your files in `L:\Claude\Benchmarks\Viscose s2\`
-  (xlsx plus four CSVs: Easier / Medium / Hard / Expert). Before I wire them in:
-  the extra "matty" rank above eclipse — keep it as a real rank, or hide it as a
-  bonus tier? And should these replace the bundled JSON benchmarks for Viscose S2,
-  or sit beside them?
+- **[?] Licence.** No LICENSE file yet, which is correct for a private repo but
+  matters the day it goes public: with no licence, nobody may legally use or fork
+  it. MIT (do what you like, keep the credit) is the usual choice for a tool like
+  this. **Not** AGPL — that is Corporate Serf Dashboard's licence, not ours, and
+  we have deliberately taken nothing from it.
   =
 
-- **[?] Playlist share codes.** `KovaaKsPlunderingOlivegreenClutch` is a server-side
-  code — resolving it means an HTTP call to KovaaK's, which breaks the "no network
-  calls" promise this app currently makes. Options: (a) allow one outbound call,
-  clearly labelled and only when you paste a code; (b) you export the playlist to a
-  file and I read that offline; (c) paste the scenario names. Which?
+- **[?] Viscose sheet columns.** Found `L:\Claude\Benchmarks\Viscose s2\`
+  (xlsx plus Easier / Medium / Hard / Expert CSVs). The extra **"matty"** rank
+  above eclipse — a real rank, or a bonus tier shown separately? And should these
+  replace the bundled JSON for Viscose S2, or sit beside it?
   =
 
-- **[?] Calendar layout.** Answered what it shows (overall increase vs previous
-  month, avg %, PB count, new scenarios played). Still need: is "overall increase"
-  the Typical (trimmed mean) change, or the same three-metric split the cards use?
+- **[?] Playlist share codes.** `KovaaKsPlunderingOlivegreenClutch` is resolved
+  server-side by KovaaK's, so supporting it means an outbound HTTP call — which
+  breaks the "no network calls" promise the app currently makes. (a) allow one
+  clearly-labelled call, only when you paste a code; (b) you export the playlist
+  to a file and I read it offline; (c) paste the scenario names. Which?
+  =
+
+- **[?] Calendar % metric.** You said "overall increase vs previous month, avg %,
+  a count of PBs, and new scenarios played". Still need: is "overall increase"
+  the Typical (trimmed mean) change alone, or the same Ceiling/Typical/Floor
+  split the cards use? Typical is the only one that survives a single month's
+  run count.
+  =
+
+- **[?] Show restarts in the runs list?** The 5 real restarts are excluded from
+  every statistic and counted in the session panel. Do you also want a toggle
+  that *displays* them among the runs?
   =
 
 ---
 
 ## Answered
 
-- **X.com handle** → `https://x.com/OrbEater_`, X logo, clickable. *Shipped v0.0.9.*
-- **Site width** → 1920 default, 2560 cap now, 5120 eventually. *Queued in Batch 8.*
-- **Versioning** → switch now. Batch = MINOR bump. *Shipped v0.1.0.* Note: it is
-  0.1.0 → 0.2.0, **not** 0.0.10 — the digits are independent numbers, not decimals.
-- **Confetti** → on a PB after 5+ prior runs, 10s, blinking. *Shipped v0.0.9.*
-- **Run resets** → log-every-run is on; restarts are detectable without using
-  score, are now excluded from the graph, counted in the session panel, and
-  trigger the RNG warning above 5. *Shipped v0.1.0.*
+- **X.com handle** → `https://x.com/OrbEater_`, X logo, clickable. *v0.0.9.*
+- **Site width** → 1920 default, 2560 cap now, 5120 eventually. *Batch 9.*
+- **Versioning** → switch now, batch = MINOR bump. *v0.1.0.* Note: 0.1.0 → 0.2.0,
+  **not** 0.0.10 — those digits are independent numbers, not decimals.
+- **Confetti** → PB after 5+ prior runs, 10s, blinking. *v0.0.9.*
+- **Run resets** → detectable without score; excluded from the graph, counted in
+  the session panel, RNG warning above 5. *v0.1.0.*
+- **NeverMiss zeros** → keep visible, keep out of the %. *v0.2.0.*
 - **ADHD mode wording** → "START FOCUSING ON KOVAAK'S AND STOP BEING ON TIKTOK".
-  *Queued in Batch 12.*
-- **Viscose raw sheet** → xlsx + CSV received, unfiltered draft with a "matty"
-  rank and out-of-order scenario names. *Queued in Batch 10*, follow-up above.
+  *Batch 13.*
+- **Viscose raw sheet** → xlsx + CSV received (unfiltered draft, "matty" rank,
+  scenario names out of order). *Batch 11*, follow-up above.
+- **Benchmark JSON** → the malformed `STS 2 - Pokeball & Flicker.json` was never
+  repaired, only made parseable; ~30 scenarios were lost. Docs corrected.

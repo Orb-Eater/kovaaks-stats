@@ -1,5 +1,71 @@
 # KovaaK's stats
 
+Written by the one and only Orb Eater.
+Yes, not AI. (Talking about this reqdme text not everything else)
+
+"why another KovaaK's app, we already have over 5 different ones ugh"
+This was not planned to be public, this was purely for personal use, but since people where interested in the metrics I shared over personal dm's, more than enough people wanted me to give them access. This is beta build, locally run, opens in web browser.
+Full application is in the works.
+
+
+Early TL:DR
+Stat viewer with science based approach, running in your browser. Enjoy.
+
+
+Long text;
+
+
+This isn't ment to be popular, this is still personal use with the ability to extend on its use-cases. 
+If information, coding, reasoning, calculation and or anything else related to this is useful for someone else, then I'm more than happy to share. 
+If this can help the aim training community in anyway, it might help the gaming community overall. We're all in dying to have proper research in gaming.
+
+This does not mean I will continue updating this app forever nor does it mean I won't. 
+I might stop updating the app tomorrow because I've everything I need myself.
+But if you have a question or request, dm on discord. Might answer you.
+
+
+Currently as of 23:15 01.09.2026, there's no active app or website that uses a science based approach to read your KovaaK's scores. Currently, most % increase or improvement metrics is based off of raw data without logic. This isn't the case for every current app/website out there, but none that I've seen or used is using a scientific approach to calculate the metrics of your kovaaks data. At least not saying it.
+
+This one does.
+
+By using (input study source you sheep) study metrics towards our kovaaks stats, we'll quickly see why adding raw % increase measured by score doesn't actually show what this app does;
+
+•If you're improving, 
+•Are in a "slump" (learning phase, this happens when you're performing worse than usual. 
+Reasons for this can be your brain adjusting to the new input you've given it. Dependant on player with x amount of playtime.
+ There are several reasons and a plethora of factors that can affect ones learning rate and current skill).
+•If you're becoming more consistent.
+•If you're breaking personal best faster than what your consistent improvement rate is.
+•If you're more consistent and closing in on your personal bests.
+•And even more reasoning behavior.
+
+This calculation with the scientific graph display size (input source you baffoon) makes it so much easier to see actual progress measuring pb, avg % and low avg %. 
+The calculation is made to exclude random non important outlier (10k avg run on controlsphere but has a 2 cm run with 4k in score), while also calculating and removing your own % based warm up runs you yourself need before it actually measures the scores.
+
+For myself, my first 3 runs are 8% worse than 3 runs after on average. So these are not included in calculation. While warming-up can feel like it takes up to 15-20~ minutes, the reasoning and math doesn't think so in terms of score. (muscles warming-up is still happening duh, and is still relevant and equally as important regardless of score stats when it comes to hand health)
+
+one major issue is having enough runs on a scenario to actually see improvement. According to (science input for improving) and adapted to kovaaks, you'll need 60+ runs before 30 day window plus another 60 in current window to determine actual improvement.
+
+This is a lot yes.
+
+however, we can still se early signs. These are marked on the scenario itself so you know you can't fully trust the calculation. You can use it as a ball park.
+
+
+short faq
+"Orb, when did tou become a coder??"
+never have been. This is all with the help of Claude Opus 5. I have no coding experience, only tons of ideas in my head that I wouldn't be able to put together without the use of Claude. (or paying someone thousands of dollars to implement every little thing I want)
+
+"If Claude is doing everything, couldn't all of this be fake"
+yeah, that's why it's personal use and will highley likely never be promoted in any way shape or form. 
+Until everything is checked properly by a human, this could all be pseudo science and completely of the mark for it's actual use.
+
+
+Thanks for your time.
+
+-------
+Everything below here is claudes doing. left it since ion wanna write everything myself yet. still lots work even when an AI is doing the hard part.
+
+
 A local statistics app for KovaaK's aim trainer. It reads your `stats` folder and
 tells you whether you are actually improving — **and tells you when it cannot
 tell**, which is most of the time on most scenarios.

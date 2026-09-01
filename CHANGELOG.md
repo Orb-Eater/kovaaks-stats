@@ -424,8 +424,7 @@ licence, and GitHub will only ever offer two downloads instead of a wall of them
 ### Licence
 
 - **MIT.** Use it, change it, ship it, sell it; keep the copyright notice; no
-  warranty. Deliberately not AGPL - that is Corporate Serf Dashboard's licence,
-  and nothing has been taken from it.
+  warranty.
 
 ### Documentation
 

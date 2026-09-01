@@ -3,7 +3,8 @@
 Read this file first if you are picking the project up cold (new chat, new
 machine, or after a `/clear`). It is the map; everything else is detail.
 
-**Last updated:** 2026-09-01, after shipping v0.2.1.
+**Last updated:** 2026-09-01, after building Batch 8 (v0.3.0, not yet frozen
+or committed — see "Next up").
 
 ---
 
@@ -152,12 +153,25 @@ any page with `?selftest=1` to run 36 numeric checks against fixed synthetic dat
 
 ---
 
-## Current state (v0.2.1)
+## Current state (v0.3.0, unreleased — Batch 8 done, not yet frozen)
 
-Working and verified on ~21,600 real runs:
+Working and verified on ~21,600 real runs (Batch 8 spot-checked via
+`?selftest=1` plus live browser testing on a 1,500-run dataset):
 
 - Statistical rework — Ceiling (p90) / Typical (trimmed mean) / Floor (p10) with
   95% CIs, power analysis, warm-up and re-familiarisation exclusion.
+- **A % is almost always shown now.** A cell with no real earlier period falls
+  back to its first 5 runs ever as a standing reference, tagged **early**
+  instead of given a CI it hasn't earned. See `CALCULATIONS.md` §2b.
+- **Warnings are icons, not paragraphs.** ℹ️ (early-baseline in use) and ⚠️
+  (under-powered, with a concrete "N more runs, ~M days" tooltip) sit next to
+  the scenario name; hover/focus for the text.
+- **Expand** button per scenario card (larger text, wider chart) and
+  **clickable cm chips** (sets the Specific-cm filter to that value).
+- Session badge no longer shows a flat "0.0%"; falls back to the cm/360
+  you're currently playing when that figure is non-zero instead.
+- **"Mostly idle this session" popup** under 40% active play, once per
+  session, dismissible.
 - cm/360 coverage 100%. Filtering by exact cm, range, or favourites.
 - 216 benchmarks, searchable, with rank thresholds.
 - Session tracking: gaps, active %, daily totals, break reminders.
@@ -191,11 +205,14 @@ Measured facts worth remembering:
 
 ## Next up
 
-**Batch 7 → v0.3.0** — the rest of the UI declutter: icons with hover text
-instead of paragraphs of warning, a rewritten under-powered message, progress %
-always shown (with the warning attached), an expand control per scenario with
-clickable cm chips, and no more 0.0% session badge. The two explanation toggles
-and the chart-label fix already shipped in v0.2.0.
+**Freeze Batch 8 as v0.3.0.** The code, docs and CHANGELOG are done and
+spot-tested in the browser (dev port 8765); `python release.py` (next minor,
+no flag needed) freezes it, and a git commit is still pending — the working
+tree has uncommitted changes covering all of Batch 8, deliberately left
+uncommitted for you to review first.
+
+After that, **Batch 9 → v0.4.0** — layout and calendar (wider page, top menu
+bar, month calendar, session bar to the right, live "Time in KovaaK's").
 
 Full detail and every later batch: `planning/BACKLOG.md`.
 

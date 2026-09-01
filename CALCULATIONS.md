@@ -81,6 +81,36 @@ because it is not distinguishable from "no change".
 Guarded: if `baseline_value` is 0 or non-finite the result is `—`, not
 `Infinity`.
 
+## 2b. No real baseline yet — the early-baseline fallback
+
+Before Batch 8, a cell with no (or too few) baseline-period runs simply showed
+`—`: correct, but it meant a brand-new scenario went blank for weeks even
+though it clearly had *some* history to compare against.
+
+```
+if baseline_value is null:
+  fallback = your first EARLY_BASELINE_N (5) runs of this cell, ever,
+             sorted chronologically — not by the window/baseline split
+  baseline_value = ceiling/typical/floor of that fallback sample
+```
+
+Two differences from a real baseline, both deliberate:
+
+- **No confidence interval.** 2-5 samples can estimate roughly where you
+  started, but not how precisely — attaching a CI would overstate what it
+  knows. Every early estimate carries `se: null` and an `early` flag instead;
+  the UI shows it in the neutral "not distinguishable from no change" grey
+  with a small **early** tag rather than a coloured up/down verdict.
+- **Only stands in for the baseline side.** If the *window* side is also too
+  thin for a metric (window n below `CEILING_MIN_N`/`TYPICAL_MIN_N`/
+  `FLOOR_MIN_N`), that metric still shows `—` — there is nothing yet to
+  measure, fallback or not. This only fixes "I have enough current data but no
+  earlier period to compare it to."
+
+Applied identically per (scenario × cm-cluster) cell (§3) and in the by-cm
+"avg/pb change" tables (§6), so a cm you've barely touched behaves the same
+way a brand-new scenario does.
+
 ## 3. The headline cards — inverse-variance weighted
 
 The unit of analysis is the **(scenario x cm-cluster) cell**, not the scenario.
@@ -237,6 +267,9 @@ describes where you left off rather than where you are.
 4. **`TRIM_FRACTION`** (0.10) — set to 0 for a true mean.
 5. **`CEILING_Q` / `FLOOR_Q`** (0.90 / 0.10) — what counts as a good and a bad run.
 6. **`CM_CLUSTER_RATIO`** (1.1) — how wide a cm range is allowed to be.
+7. **`EARLY_BASELINE_N`** (5) — how many of a cell's earliest runs stand in
+   for a missing baseline (§2b). Higher is a steadier fallback estimate but a
+   longer wait before it's available at all.
 
 ## Known limitation: no anchored baseline yet
 

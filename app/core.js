@@ -25,6 +25,11 @@ const TUNING = {
   TRIM_FRACTION: 0.10,   // 10% off each end; needs n>=10 to remove anything
   TRIM_MIN_N: 10,
 
+  // When a proper comparison-period baseline is too thin, fall back to this
+  // many of the scenario's earliest-ever runs as a standing reference instead
+  // of showing nothing (Batch 8). Point estimate only — never given a CI.
+  EARLY_BASELINE_N: 5,
+
   // --- confounds (STATISTICS.md §3) -------------------------------------
   SESSION_GAP_MIN: 60,   // minutes of inactivity that starts a new session
   WARMUP_DROP: 2,        // runs dropped at the start of each session
@@ -82,7 +87,13 @@ const TUNING = {
   // They are detected structurally (see run_timing in server.py), kept out of
   // every statistic, and counted in the session panel.
   RESET_RATIO_ALERT: 5,     // restarts per completed run before it says something
-  RESET_ALERT_MIN_RUNS: 3   // ...but not until this many runs were actually finished
+  RESET_ALERT_MIN_RUNS: 3,  // ...but not until this many runs were actually finished
+
+  // Below this % of a session actually spent playing, a popup flags it once
+  // per session (Batch 8) — but not before the session is long enough for the
+  // ratio to mean anything; a two-run session reads noisy either way.
+  LOW_ACTIVE_PCT: 40,
+  LOW_ACTIVE_MIN_SPAN_SEC: 600
 };
 let excludeWarmup = true;
 let excludeRefam = true;
@@ -109,6 +120,8 @@ let cmTablesCollapsed = true;
 let dataVersion = null;
 let listLimit = 5;
 let listShowAll = false;
+// Scenario cards expanded for a closer look (Batch 8) — keyed like sessionAvg.
+const expandedScenarios = new Set();
 // ---- per-build settings storage ---------------------------------------
 // localStorage is keyed by origin (host + port), not by folder. Frozen releases
 // used to be numbered from 8801 upwards in every copy of the project, so two
@@ -380,6 +393,23 @@ function trimmedMeanSE(sorted, frac){
   return sd(kept) / Math.sqrt(kept.length);
 }
 
+// A permanent low bar for scenarios/cells that don't yet have a real earlier
+// period to compare against: your first EARLY_BASELINE_N runs, ever. Still
+// real data, just a different reference point — and deliberately given no CI,
+// because 2-5 samples can estimate a level but not its precision.
+function earlyBaseline(scoresChronological){
+  const n = Math.min(TUNING.EARLY_BASELINE_N, scoresChronological.length);
+  if(n < 2) return null;
+  const early = scoresChronological.slice(0, n).slice().sort((a,b)=>a-b);
+  return {
+    n,
+    ceiling: quantileAt(early, TUNING.CEILING_Q),
+    typical: trimmedMean(early, TUNING.TRIM_FRACTION),
+    floor: quantileAt(early, TUNING.FLOOR_Q),
+    avg: mean(early)
+  };
+}
+
 // Runs required per side to detect TARGET_EFFECT at this scenario's own spread.
 function requiredN(cv){
   if(cv == null || !isFinite(cv) || cv <= 0) return TUNING.HARD_FLOOR_N;
@@ -493,6 +523,19 @@ function rushDiagnosis(s){
     'try leaving a few seconds between runs, and a real break every so often.';
 }
 
+// The opposite problem to rushDiagnosis: most of the session's clock went
+// somewhere other than playing (alt-tabbed, deciding what to play, a long
+// queue). Gated on session length so a two-run session doesn't read as "idle"
+// just because the gap between them was long (Batch 8).
+function lowActiveDiagnosis(s){
+  if(!s || s.activePct == null) return null;
+  if(s.spanSec < TUNING.LOW_ACTIVE_MIN_SPAN_SEC) return null;
+  if(s.activePct >= TUNING.LOW_ACTIVE_PCT) return null;
+  return 'Only ' + s.activePct.toFixed(0) + '% of this session (' + fmtDur(s.spanSec) +
+    ' since the first run) has actually been spent playing. Not a judgement — just flagging it ' +
+    'in case you meant to be heads-down.';
+}
+
 // Two different questions, deliberately separated.
 //
 // runVisible - "did you actually play this run?" Drives charts and run counts.
@@ -561,11 +604,19 @@ function stats(scores){
 }
 
 // change% with its standard error, so the UI can show an interval instead of a
-// bare point estimate.
-function changeWithSE(w, b, key){
-  const wv = w[key], bv = b[key];
+// bare point estimate. `fallback` (an earlyBaseline() result) stands in for a
+// missing/too-thin real baseline so a % is always shown (Batch 8) rather than
+// a dash — flagged with `early: true` so the UI can say why there's no CI.
+function changeWithSE(w, b, key, fallback){
+  const wv = w[key];
+  let bv = b[key], early = false;
+  if(bv == null && fallback && fallback[key] != null && fallback[key] > 0){
+    bv = fallback[key];
+    early = true;
+  }
   if(wv == null || bv == null || !(bv > 0)) return null;
   const pct = (wv - bv)/bv*100;
+  if(early) return {pct, se: null, early: true, earlyN: fallback.n};
   let seW, seB;
   if(key === 'typical'){
     seW = trimmedMeanSE(w.sorted, TUNING.TRIM_FRACTION);
@@ -590,9 +641,10 @@ function computeCells(pool, windowStart, windowEnd, cmpMode, clusters){
   pool.forEach(r => {
     const cl = (clusters && clusters.length && r.cm360 != null)
       ? clusterIndexFor(r.cm360, clusters) : -1;
-    const key = r.scen + ' ' + cl;
-    const c = cells[key] ||= {scen: r.scen, cluster: cl, win: [], base: [], all: []};
+    const key = r.scen + ' ' + cl;
+    const c = cells[key] ||= {scen: r.scen, cluster: cl, win: [], base: [], all: [], allRuns: []};
     c.all.push(r.score);
+    c.allRuns.push(r);
     const t = r.date;
     if(cmpMode === 'prev'){
       if(t >= windowStart && t <= windowEnd) c.win.push(r.score);
@@ -608,12 +660,17 @@ function computeCells(pool, windowStart, windowEnd, cmpMode, clusters){
     const am = mean(allSorted);
     const cv = (allSorted.length >= TUNING.HARD_FLOOR_N && am > 0) ? sd(allSorted)/am*100 : null;
     const nReq = requiredN(cv);
+    // Earliest-ever runs of this cell, oldest first, feed earlyBaseline() when
+    // the real baseline period is too thin to compute ceiling/typical/floor on.
+    const chronological = c.allRuns.length > 1
+      ? [...c.allRuns].sort((x,y)=>x.date-y.date).map(r=>r.score) : c.all;
+    const fallback = earlyBaseline(chronological);
     return {
       scen: c.scen, cluster: c.cluster, w, b, cv, nRequired: nReq,
       nMin: Math.min(w.n, b.n), powered: Math.min(w.n, b.n) >= nReq,
-      ceiling: changeWithSE(w, b, 'ceiling'),
-      typical: changeWithSE(w, b, 'typical'),
-      floor:   changeWithSE(w, b, 'floor')
+      ceiling: changeWithSE(w, b, 'ceiling', fallback),
+      typical: changeWithSE(w, b, 'typical', fallback),
+      floor:   changeWithSE(w, b, 'floor', fallback)
     };
   });
 }
@@ -625,7 +682,17 @@ function overallOf(list){
   const items = list.filter(c => c && c.pct != null && isFinite(c.pct));
   if(!items.length) return null;
   const precise = items.filter(c => c.se != null && c.se > 0 && isFinite(c.se));
-  if(!precise.length) return {pct: mean(items.map(c=>c.pct)), se: null};
+  if(!precise.length){
+    // No cell has a real interval — most commonly because every one of them
+    // is leaning on earlyBaseline(). Carry that through so the UI still knows
+    // to show the "early" marker instead of a CI it doesn't have (Batch 8).
+    const earlyOnes = items.filter(c => c.early);
+    return {
+      pct: mean(items.map(c=>c.pct)), se: null,
+      early: earlyOnes.length > 0,
+      earlyN: earlyOnes.length ? Math.max(...earlyOnes.map(c => c.earlyN || 0)) : undefined
+    };
+  }
   const wSum = precise.reduce((s,c) => s + 1/(c.se*c.se), 0);
   const num  = precise.reduce((s,c) => s + c.pct/(c.se*c.se), 0);
   return {pct: num/wSum, se: Math.sqrt(1/wSum)};
@@ -677,6 +744,10 @@ function computeTrends(pool, windowStart, windowEnd, cmpMode, minRuns, clusters,
       floor:   overallOf(cs.map(c=>c.floor)),
       nMin, nRequired, scenCv, powered,
       base: cs.some(c => c.b.n > 0),
+      // True when at least one shown % leans on the first-N-runs fallback
+      // rather than a real earlier period (Batch 8) — drives the info icon.
+      usedEarlyBaseline: cs.some(c =>
+        (c.ceiling && c.ceiling.early) || (c.typical && c.typical.early) || (c.floor && c.floor.early)),
       // convenience accessors used by sorting / the cm tables
       get avgTrend(){ return this.typical ? this.typical.pct : null; }
     };
@@ -798,10 +869,11 @@ function computeCmDeltas(pool, windowStart, windowEnd, cmpMode, bucketOf){
   pool.forEach(r => { if(r.cm360 != null) (byScen[r.scen] ||= []).push(r); });
   const acc = {};
   Object.values(byScen).forEach(rs => {
-    const cur = {}, base = {};
+    const cur = {}, base = {}, all = {};
     rs.forEach(r => {
       const b = bucketOf(r.cm360);
       if(b == null) return;
+      (all[b] ||= []).push(r);
       const t = r.date;
       if(cmpMode === 'prev'){
         if(t >= windowStart && t <= windowEnd) (cur[b] ||= []).push(r.score);
@@ -812,16 +884,30 @@ function computeCmDeltas(pool, windowStart, windowEnd, cmpMode, bucketOf){
       }
     });
     Object.keys(cur).forEach(b => {
-      const c = cur[b], bs = base[b];
-      if(!bs || c.length < TUNING.CM_LEVEL_MIN_N || bs.length < TUNING.CM_LEVEL_MIN_N) return;
-      const cAvg = mean(c), bAvg = mean(bs);
-      const cs_ = [...c].sort((x,y)=>x-y), bs_ = [...bs].sort((x,y)=>x-y);
-      const cBest = quantileAt(cs_, TUNING.CEILING_Q), bBest = quantileAt(bs_, TUNING.CEILING_Q);
-      const e = acc[b] ||= {avg:[], pb:[], scenarios:0, runs:0};
+      const c = cur[b];
+      if(c.length < TUNING.CM_LEVEL_MIN_N) return;
+      const bs = base[b];
+      let bAvg, bBest, early = false;
+      // Same rule as the per-scenario cards (Batch 8): a too-thin baseline
+      // period falls back to this cm's first-ever runs instead of going blank.
+      if(bs && bs.length >= TUNING.CM_LEVEL_MIN_N){
+        const bs_ = [...bs].sort((x,y)=>x-y);
+        bAvg = mean(bs); bBest = quantileAt(bs_, TUNING.CEILING_Q);
+      } else {
+        const chrono = [...(all[b]||[])].sort((x,y)=>x.date-y.date).map(r=>r.score);
+        const fb = earlyBaseline(chrono);
+        if(!fb) return;
+        bAvg = fb.avg; bBest = fb.ceiling; early = true;
+      }
+      const cAvg = mean(c);
+      const cs_ = [...c].sort((x,y)=>x-y);
+      const cBest = quantileAt(cs_, TUNING.CEILING_Q);
+      const e = acc[b] ||= {avg:[], pb:[], scenarios:0, runs:0, early:0};
       if(bAvg > 0) e.avg.push((cAvg - bAvg)/bAvg*100);
       if(bBest > 0) e.pb.push((cBest - bBest)/bBest*100);
       e.scenarios++;
       e.runs += c.length;
+      if(early) e.early++;
     });
   });
   const out = {};
@@ -829,7 +915,8 @@ function computeCmDeltas(pool, windowStart, windowEnd, cmpMode, bucketOf){
     out[b] = {
       avgDelta: e.avg.length ? mean(e.avg) : null,
       pbDelta: e.pb.length ? mean(e.pb) : null,
-      scenarios: e.scenarios
+      scenarios: e.scenarios,
+      early: e.early > 0
     };
   });
   return out;
@@ -1113,9 +1200,15 @@ function render(){
   const estCls = e => (!e || e.pct == null) ? '' : (ciCrossesZero(e) ? 'ns' : (e.pct >= 0 ? 'up' : 'dn'));
   const estStr = e => (!e || e.pct == null) ? '—' : pctStr(e.pct);
   const ciStr  = e => (!e || e.se == null) ? '' : ' ± ' + (TUNING.CI_Z * e.se).toFixed(1) + '%';
+  // A % built from earlyBaseline() (Batch 8) gets a small marker rather than a
+  // CI, because 2-5 samples can say roughly where you started but not how
+  // precisely — showing an interval on that would overstate what it knows.
+  const earlyTag = n => '<abbr class="earlytag" title="Baseline is your first '+n+' run'+(n===1?'':'s')+
+    ' of this — there is no separate earlier period to compare against yet, so treat this as a rough starting point, not a measured change.">early</abbr>';
   const estSpan = e => (!e || e.pct == null)
     ? '<span style="color:var(--ink3)">—</span>'
-    : '<span class="'+estCls(e)+'">'+pctStr(e.pct)+'</span><span class="ci">'+ciStr(e)+'</span>';
+    : '<span class="'+estCls(e)+'">'+pctStr(e.pct)+'</span>' +
+      (e.early ? ' '+earlyTag(e.earlyN) : '<span class="ci">'+ciStr(e)+'</span>');
 
   // cm/360 breakdown (always computed from the full cm spectrum, ignoring the active Range/Specific filter,
   // so different cms can be compared side by side) + best/worst performing cm.
@@ -1264,8 +1357,8 @@ function render(){
       '<p class="meta" style="margin-bottom:0"><b>level</b> = how that cm performs vs your own typical avg/PB (is this cm good for you?). ' +
       '<b>change</b> = how your scores <i>at that cm</i> moved vs the same cm earlier (are you improving there?). ' +
       'Both ignore the Range/Specific filter so all cms stay comparable.</p></div>';
-    const dcell = d => d ? deltaSpan(d.avgDelta) : '<span style="color:var(--ink3)">—</span>';
-    const dcellPb = d => d ? deltaSpan(d.pbDelta) : '<span style="color:var(--ink3)">—</span>';
+    const dcell = d => d ? deltaSpan(d.avgDelta) + (d.early ? ' '+earlyTag(TUNING.EARLY_BASELINE_N) : '') : '<span style="color:var(--ink3)">—</span>';
+    const dcellPb = d => d ? deltaSpan(d.pbDelta) + (d.early ? ' '+earlyTag(TUNING.EARLY_BASELINE_N) : '') : '<span style="color:var(--ink3)">—</span>';
     if(!cmTablesCollapsed){
       html += '<div class="cmside-by-side">';
       if(sortedRange.length){
@@ -1310,27 +1403,39 @@ function render(){
     const row = (label, value, minN, est) =>
       '<tr><td>'+label+'</td><td>'+(value==null ? '<span style="color:var(--ink3)">n&lt;'+minN+'</span>' : fmt(value))+'</td>'+
       '<td>'+estSpan(est)+'</td></tr>';
-    // When the data can't support a %, say exactly what would fix it rather
-    // than showing a silent dash (STATISTICS.md §8).
-    const ciHalf = (r.typical && r.typical.se != null) ? TUNING.CI_Z*r.typical.se : null;
-    const gate = !r.powered
-      ? '<p class="stalewarn">Can currently detect a change of about ±'+
-        (ciHalf != null ? ciHalf.toFixed(1)+'%' : '?')+' here; you want ±'+TUNING.TARGET_EFFECT+'%. '+
-        'At this scenario’s spread ('+fmt(r.scenCv==null ? r.st.cv : r.scenCv)+'%) that needs roughly '+
-        r.nRequired+' comparable runs per side — you have '+r.nMin+'. Percentages are shown but under-powered.</p>'
+    // Icons instead of paragraphs (Batch 8): the concrete thing only, on hover.
+    const moreNeeded = Math.max(0, r.nRequired - r.nMin);
+    const windowSpanDays = Math.max(1, (windowEnd - windowStart)/864e5);
+    const ratePerDay = r.st.n / windowSpanDays;
+    const etaDays = (!r.powered && ratePerDay > 0) ? Math.ceil(moreNeeded/ratePerDay) : null;
+    const warnIcon = !r.powered
+      ? '<span class="icon-warn" tabindex="0" title="Needs about '+moreNeeded+' more comparable run'+(moreNeeded===1?'':'s')+
+        ' per side to reliably detect a '+TUNING.TARGET_EFFECT+'% change'+
+        (etaDays!=null ? ' — roughly '+etaDays+' day'+(etaDays===1?'':'s')+' at your recent pace' : '')+'.">⚠️</span>'
       : '';
-    const sess = sessionAvg[r.scen.trim().toLowerCase()];
-    const sessBadge = (sess && sess.improved && sess.deltaPct != null)
-      ? '<span class="sessup" title="Your average on this scenario has risen since you started this session">▲ avg up '+
-        sess.deltaPct.toFixed(1)+'% this session</span>' : '';
-    // Still shows the %s - just says plainly how much more is needed to trust them.
-    const noBase = !r.base
-      ? '<p class="needbase">Not enough baseline yet. The PB and Avg below use your current runs only — ' +
-        'play this across a few separate days (roughly '+r.nRequired+' runs before and after the window) ' +
-        'before reading the % as real improvement.</p>'
+    const infoIcon = r.usedEarlyBaseline
+      ? '<span class="icon-info" tabindex="0" title="No separate earlier period to compare against yet, so some %s below use your first '+
+        TUNING.EARLY_BASELINE_N+' runs of this scenario as a rough starting point instead. Play it across a few separate days for a fully independent comparison.">ℹ️</span>'
       : '';
-    return '<div class="scen"><h3>'+esc(r.scen)+' '+sessBadge+'</h3>'+
-      noBase +
+    const key = r.scen.trim().toLowerCase();
+    // Session badge: this scenario overall, or — if that would show as a flat
+    // 0.0% — the cm/360 actually being played right now (Batch 8).
+    const zeroish = v => v == null || Math.abs(v) < 0.05;
+    const sess = sessionAvg[key];
+    const curCm = lastCmFor(r.scen);
+    const sessCm = curCm != null ? sessionAvgByCm[sessionKeyOf(r.scen, curCm)] : null;
+    let sessBadge = '';
+    if(sess && sess.improved && !zeroish(sess.deltaPct)){
+      sessBadge = '<span class="sessup" title="Your average on this scenario has risen since you started this session">▲ avg up '+
+        sess.deltaPct.toFixed(1)+'% this session</span>';
+    } else if(sessCm && sessCm.improved && !zeroish(sessCm.deltaPct)){
+      sessBadge = '<span class="sessup" title="Your average at '+curCm+'cm/360 has risen since you started this session">▲ avg up '+
+        sessCm.deltaPct.toFixed(1)+'% this session at '+curCm+'cm</span>';
+    }
+    const expanded = expandedScenarios.has(key);
+    return '<div class="scen'+(expanded?' scen-expanded':'')+'"><h3>'+
+      esc(r.scen)+' '+infoIcon+warnIcon+' '+sessBadge+
+      '<button type="button" class="minibtn expandBtn" data-scen="'+esc(key)+'">'+(expanded?'Collapse':'Expand')+'</button></h3>'+
       '<p class="meta">'+r.st.n+' runs'+(r.zeroRuns ? ' <span class="zerotag" title="Runs that scored 0 — a NeverMiss that ended on the first shot, for example. Drawn on the chart, never counted in a percentage.">+'+r.zeroRuns+' scored 0</span>' : '')+' · spread '+fmt(r.st.cv)+'% · last played '+r.rs[r.rs.length-1].date.toISOString().slice(0,10)+
       (r.cells.length>1 ? ' · '+r.cells.length+' cm cells' : '')+'</p>'+
       '<table><tr><th>metric</th><th>value</th><th>vs baseline (95% CI)</th></tr>'+
@@ -1339,7 +1444,6 @@ function render(){
       row('Typical (trimmed)', r.st.typical, TUNING.TYPICAL_MIN_N, r.typical)+
       row('Floor (p10)', r.st.floor, TUNING.FLOOR_MIN_N, r.floor)+
       '</table>'+
-      gate +
       staleNote(r, windowEnd) +
       spark(r.rsAll || r.rs, colorByCm)+
       '<div class="legend"><span><i style="background:var(--best)"></i>PB (step — it is a ratchet, not a slope)</span>'+
@@ -1597,20 +1701,41 @@ function niceStep(raw){
 // Per-scenario, this session: did your average go up while you were playing?
 // Baseline is your average at the moment the session's first run of that
 // scenario landed, so it answers "am I doing better than when I sat down".
-const sessionAvg = {};   // scen -> {startAvg, startN, improved}
-function noteSessionAvg(run){
-  const key = run.scen.trim().toLowerCase();
-  const upto = RUNS.filter(r => r.scen.trim().toLowerCase() === key && r.date <= run.date);
+const sessionAvg = {};      // scen -> {startAvg, startN, improved}
+// Same idea, scoped to one cm/360 (Batch 8) — feeds the session badge when the
+// scenario-wide figure would show as a flat 0.0%.
+const sessionAvgByCm = {};  // "scen|cm" -> same shape
+function sessionKeyOf(scen, cm){ return scen.trim().toLowerCase() + '|' + cm; }
+function updateSessionAvgEntry(store, key, run, matches){
+  const upto = RUNS.filter(r => matches(r) && r.date <= run.date);
   if(upto.length < 3) return;
   const cur = mean(upto.map(r => r.score));
-  if(!sessionAvg[key]){
+  if(!store[key]){
     const prior = upto.slice(0, -1);
-    sessionAvg[key] = {startAvg: prior.length ? mean(prior.map(r=>r.score)) : cur, improved:false};
+    store[key] = {startAvg: prior.length ? mean(prior.map(r=>r.score)) : cur, improved:false};
   }
-  const s = sessionAvg[key];
+  const s = store[key];
   s.curAvg = cur;
   if(cur > s.startAvg) s.improved = true;
   s.deltaPct = s.startAvg > 0 ? (cur - s.startAvg)/s.startAvg*100 : null;
+}
+function noteSessionAvg(run){
+  const key = run.scen.trim().toLowerCase();
+  updateSessionAvgEntry(sessionAvg, key, run, r => r.scen.trim().toLowerCase() === key);
+  if(run.cm360 != null){
+    const cm = Math.round(run.cm360);
+    updateSessionAvgEntry(sessionAvgByCm, sessionKeyOf(run.scen, cm), run,
+      r => r.scen.trim().toLowerCase() === key && r.cm360 != null && Math.round(r.cm360) === cm);
+  }
+}
+// The cm/360 of the most recent run of this scenario — "the cm being played
+// right now", for the per-cm session badge fallback.
+function lastCmFor(scen){
+  const key = scen.trim().toLowerCase();
+  for(let i = RUNS.length-1; i >= 0; i--){
+    if(RUNS[i].scen.trim().toLowerCase() === key && RUNS[i].cm360 != null) return Math.round(RUNS[i].cm360);
+  }
+  return null;
 }
 
 function classifyAchievement(run){
@@ -1764,6 +1889,21 @@ function fireBreak(why){
   const d = document.getElementById('breakDismiss');
   if(d) d.addEventListener('click', () => { $('#breakAlert').innerHTML = ''; });
 }
+// Fires at most once per session (Batch 8) — renderSessionPanel re-runs on
+// every poll tick, but re-showing this every 5s the whole time you're
+// alt-tabbed would be its own kind of annoying.
+let lowActiveNudgeShownFor = null;
+function maybeFireLowActiveNudge(s){
+  if(!has('#lowActiveAlert') || lowActiveNudgeShownFor === s.start.getTime()) return;
+  const why = lowActiveDiagnosis(s);
+  if(!why) return;
+  lowActiveNudgeShownFor = s.start.getTime();
+  $('#lowActiveAlert').innerHTML = '<div class="breakalert">⏸ <b>Mostly idle this session</b> — ' + esc(why) +
+    '<button type="button" id="lowActiveDismiss" class="minibtn" style="float:none;margin-left:10px">Dismiss</button></div>';
+  logMsg('low active-play nudge fired', {activePct: Math.round(s.activePct), spanSec: Math.round(s.spanSec)});
+  const d = document.getElementById('lowActiveDismiss');
+  if(d) d.addEventListener('click', () => { $('#lowActiveAlert').innerHTML = ''; });
+}
 function renderBreakStatus(){
   if(!has('#breakStatus')) return;
   if(!BRK.enabled){ $('#breakStatus').textContent = ''; return; }
@@ -1795,6 +1935,7 @@ function renderSessionPanel(){
   if(!sessions.length){ $('#sessionPanel').innerHTML = ''; return; }
   const s = sessions[sessions.length-1];
   const now = RUNS[RUNS.length-1].date;
+  maybeFireLowActiveNudge(s);
 
   const today = sessions.filter(x => x.end.toDateString() === now.toDateString());
   // Completed runs only, to match the Latest-session card. Restarts are
@@ -2046,6 +2187,8 @@ function pbCmTag(rs){
     '" title="Your record on this scenario was set at '+p.pbCm+'cm/360">'+p.pbCm+'cm</span>';
 }
 
+// Chips are clickable (Batch 8): picking one sets the app's Specific-cm filter
+// to that value, so "look at this scenario at just this cm" is one click.
 function cmDotLegend(rs){
   const p = cmProfile(rs);
   if(!p) return '';
@@ -2056,9 +2199,9 @@ function cmDotLegend(rs){
     const isPb   = multi && b === p.pbCm;
     const tags = (isMost ? '<b class="cmtag most">most played</b>' : '') +
                  (isPb   ? '<b class="cmtag pb">PB</b>' : '');
-    return '<span title="'+n+' run'+(n===1?'':'s')+' at '+b+'cm'+
+    return '<span class="cmchip" data-cm="'+b+'" tabindex="0" title="'+n+' run'+(n===1?'':'s')+' at '+b+'cm'+
       (isMost ? ' — more than at any other sensitivity' : '')+
-      (isPb ? ' — your record on this scenario was set here' : '')+'">'+
+      (isPb ? ' — your record on this scenario was set here' : '')+' — click to filter to '+b+'cm">'+
       '<i class="cmswatch" style="background:'+cmColor(b)+'"></i>'+b+'cm'+tags+'</span>';
   }).join('')+'</div>';
 }
@@ -2312,6 +2455,24 @@ $('#listMore').addEventListener('click', e => {
   if(e.target.id === 'listMoreBtn'){ listLimit += TUNING.LIST_PAGE_SIZE; render(); }
   if(e.target.id === 'listAllBtn'){ listShowAll = true; render(); }
   if(e.target.id === 'listFewerBtn'){ listShowAll = false; listLimit = TUNING.LIST_PAGE_SIZE; render(); }
+});
+// Delegated onto the (never-replaced) wrapper, since #list's own innerHTML is
+// rebuilt on every render() — a listener on the cards themselves would vanish.
+$('#list').addEventListener('click', e => {
+  const expBtn = e.target.closest('.expandBtn');
+  if(expBtn){
+    const key = expBtn.dataset.scen;
+    if(expandedScenarios.has(key)) expandedScenarios.delete(key); else expandedScenarios.add(key);
+    render();
+    return;
+  }
+  const chip = e.target.closest('.cmchip');
+  if(chip){
+    cmPickValue = +chip.dataset.cm;
+    setCmTab('pick');
+    rebuildCmPickOptions();
+    render();
+  }
 });
 
 const drop = $('#drop');

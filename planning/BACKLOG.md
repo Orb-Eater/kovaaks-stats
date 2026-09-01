@@ -207,32 +207,42 @@ take focus.
 
 ---
 
-## Batch 8 — the rest of the UI declutter → v0.3.0
+### Batch 8 — the rest of the UI declutter → v0.3.0
 
 Your words: *"We need to remove all the text clutter everywhere."*
 
-- [ ] **Icons instead of paragraphs.** Beside each scenario name: an ℹ️ info icon
-      and, when relevant, a ⚠️ alarm icon. Text appears on hover, not inline.
-      Replaces the "Not enough baseline yet…" block.
-- [ ] **Rewrite the under-powered message.** Current text —
-      *"Can currently detect a change of about ±? here; you want ±5%. At this
-      scenario's spread (12.9%) that needs roughly 105 comparable runs per side —
-      you have 0."* — reads as nonsense, partly because `±?` renders when there is
-      no CI at all. Replace with a yellow warning icon whose tooltip says only the
-      concrete thing: **how many more runs, over what timeframe.**
-- [ ] **Always show progress %.** Currently blank when criteria are not met. Show
-      it with the warning attached instead. **Baseline = first 5 runs** when there
-      is no proper baseline. Same rule per cm.
-- [ ] **Expand a scenario** from a control in its top-right corner: everything
-      scales up for easier viewing, and the cm chips (already displayed) become
-      clickable to filter that scenario to a single cm.
-      *This also closes [MEASUREMENT-SPEC.md §10 gap 13](../MEASUREMENT-SPEC.md)
-      and [CHART-SCALING.md §8](../CHART-SCALING.md) — per-scenario cm filtering
-      is a precondition for the σ band being meaningful.*
-- [ ] **Hide the 0.0% session badge.** "▲ avg up 0.1% this session" should not
-      render at 0.0%. Show avg-up % for the cm currently being played instead.
-- [ ] **Popup over the session panel when active play is under 40%** *(moved here
-      from Batch 8 — it belongs with the session panel work)*
+- [x] **Icons instead of paragraphs.** Beside each scenario name: an ℹ️ info icon
+      and, when relevant, a ⚠️ alarm icon. Text appears on hover/focus (native
+      `title`, same convention as the cm swatches). Replaces the "Not enough
+      baseline yet…" block — the ℹ️ only shows when a % on that card actually used
+      the early-baseline fallback below.
+- [x] **Rewrite the under-powered message.** Now a ⚠️ whose tooltip says only the
+      concrete thing: how many more comparable runs per side, and roughly how many
+      days at your recent pace (window runs ÷ window span).
+- [x] **Always show progress %.** `earlyBaseline()`: when a cell's real baseline
+      period is too thin, falls back to its first `EARLY_BASELINE_N` (5) runs ever
+      as a standing reference — point estimate only, no CI, tagged **early**.
+      Applied to the scenario cards' ceiling/typical/floor *and* the by-cm
+      avg/pb-change tables. Still shows `—` when the *window* side itself lacks
+      enough runs — this only fixes the "no earlier period" case. See
+      [CALCULATIONS.md §2b](../CALCULATIONS.md).
+- [x] **Expand a scenario** from a control in its top-right corner: larger text and
+      a wider chart (CSS-only — the chart's viewBox already scales). The cm chips
+      are clickable independent of expand — click one to set the app's Specific-cm
+      filter to that value.
+      *Chip-click applies the existing global Specific-cm filter rather than a
+      card-scoped one — reuses the already-tested filtering path instead of a
+      parallel per-card stats system. [MEASUREMENT-SPEC.md §10 gap 13](../MEASUREMENT-SPEC.md)
+      /[CHART-SCALING.md §8](../CHART-SCALING.md)'s true per-card cm filtering is
+      still open if that turns out not to be enough.*
+- [x] **Hide the 0.0% session badge.** Suppressed whenever the figure would round
+      to 0.0% (`|Δ| < 0.05`); falls back to the avg-up % at the cm/360 you're
+      currently playing (tracked the same way, per-cm) when *that* figure is
+      itself non-zero. Shows nothing when both are flat.
+- [x] **Popup over the session panel when active play is under 40%.** Fires once
+      per session (a dismissible box like the break reminder), gated on the
+      session being at least 10 minutes long so a two-run session doesn't read as
+      "idle" from one long gap.
 
 ## Batch 9 — layout and calendar → v0.4.0
 
@@ -280,7 +290,9 @@ Your new xlsx/CSV export replaces it.
       ([CHART-SCALING.md §7](../CHART-SCALING.md))
 - [ ] Baseline cm set to 45–50cm for now
 - [ ] **Playlist import**
-- [ ] **Viscose raw Excel sheet** ingest — [?] need the file and its layout
+- [ ] **Viscose raw Excel sheet** ingest — files received, in
+      `L:\Claude\Benchmarks\Viscose s2\` (xlsx + four CSVs). Column layout
+      question is in Open questions.
 
 ## Batch 12 — timeframe comparison tools → v0.7.0
 

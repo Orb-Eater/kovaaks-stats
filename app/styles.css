@@ -175,7 +175,24 @@ tr:last-child td{border-bottom:none}
   border:1px solid rgba(95,185,138,.35);border-radius:999px;padding:2px 9px;margin-left:6px;
   vertical-align:middle;animation:blinksoft 1.9s ease-in-out infinite}
 @keyframes blinksoft{0%,100%{opacity:1}50%{opacity:.45}}
-.needbase{color:#ff9a9a;font-size:12.5px;margin:0 0 10px;line-height:1.5}
+/* Icons instead of paragraphs (Batch 8) — hover/focus text via the native
+   title attribute, same convention as .cmswatch and .recordtag already use. */
+.icon-info,.icon-warn{cursor:help;font-size:12.5px;margin-left:2px;vertical-align:middle}
+.icon-info{opacity:.75}
+.earlytag{font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);
+  border:1px dotted var(--ink3);border-radius:4px;padding:0 4px;margin-left:4px;cursor:help;
+  text-decoration:none}
+.cmchip{cursor:pointer;border-radius:4px}
+.cmchip:hover,.cmchip:focus-visible{color:var(--ink)}
+.cmchip:focus-visible{outline:1px solid var(--med);outline-offset:2px}
+
+/* Expand a scenario card for a closer look (Batch 8): same content, more room. */
+.scen-expanded{padding:26px 30px}
+.scen-expanded h3{font-size:19px}
+.scen-expanded .meta,.scen-expanded table{font-size:14px}
+.scen-expanded .legend{font-size:12.5px}
+.scen-expanded .spark{max-width:1100px}
+.scen-expanded .scalenote{max-width:1100px}
 
 /* --- sessions / breaks -------------------------------------------------- */
 .breakalert{background:#3a2e14;border:1px solid #7c6a2b;color:#f0d68a;border-radius:8px;

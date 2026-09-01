@@ -5,6 +5,62 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.3.0 - 2026-09-01
+
+**TL;DR - "not enough baseline yet" almost never shows a blank dash any more.
+Warnings are now icons you hover, not paragraphs you scroll past. Cards have
+an Expand button, cm chips are clickable, and two rough edges — a "0.0%"
+session badge and a wall you might be mostly idle during — are fixed.**
+
+Batch 8: the rest of the UI declutter (your words: *"We need to remove all the
+text clutter everywhere"*).
+
+### A % is (almost) always shown now
+
+- **Early-baseline fallback.** A cell with no real earlier period to compare
+  against used to show `—`. It now falls back to your first 5 runs of that
+  scenario/cm as a standing reference point, tagged **early** instead of given
+  a confidence interval it can't earn — see
+  [CALCULATIONS.md §2b](CALCULATIONS.md). Applied to the scenario cards and
+  the by-cm "avg/pb change" tables alike.
+- This does **not** invent numbers where there's no current data either — a
+  metric still needs enough *window*-side runs to compute at all; only the
+  baseline side got more forgiving.
+
+### Icons instead of paragraphs
+
+- **"Not enough baseline yet"** is now an ℹ️ next to the scenario name,
+  hover/focus for the explanation, only shown when a % on that card actually
+  used the early-baseline fallback above.
+- **The under-powered paragraph is now a ⚠️.** Its tooltip says only the
+  concrete thing — how many more comparable runs, and roughly how many days
+  at your recent pace — instead of a sentence with spread, target effect and
+  required-n all spelled out.
+
+### Expand, and clickable cm chips
+
+- **Expand** button, top-right of every scenario card: same content, larger
+  text and a wider chart, for a closer look without opening a separate page.
+- **The per-scenario cm chips are now clickable** — picking one sets the
+  app's Specific-cm filter to that value, so "just this scenario at just this
+  cm" is one click instead of hunting through the picker.
+
+### Two small fixes
+
+- **The "▲ avg up 0.0%" session badge is gone.** When the scenario-wide
+  figure would round to a flat 0.0%, the badge now shows your session
+  progress at the cm/360 you're actually playing right now instead of
+  disappearing outright (only when that figure is itself non-zero).
+- **"Mostly idle this session" popup** when under 40% of a session (at least
+  10 minutes long) has actually been spent playing — not a judgement, just a
+  flag, dismissible, and shown at most once per session.
+
+### Also
+
+- Fixed a stray NUL byte in `core.js` (a cell key separator that should have
+  been a space) — harmless to the app, but it made the file look binary to
+  standard search tools.
+
 ## v0.2.1 - 2026-09-01
 
 **TL;DR - the Browse button now actually shows you a folder window. It was

@@ -5,6 +5,46 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.4.0 - 2026-09-01
+
+**TL;DR - Benchmarks is now Scenario testing, carrying Viscose Benchmarks S2
+instead of 216 mixed benchmarks. And the app will tell you how to make restarts
+countable, once, if you have not already.**
+
+### Scenario testing
+
+- **The Benchmarks tab is now "Scenario testing"**, holding **Viscose Benchmarks
+  S2 - Medium, Hard and Expert**. 39 scenarios each, 117 in total. The previous
+  216-benchmark dataset is replaced outright, not merged.
+- That retires the broken bundled Medium, which had **9 of its 39 scenarios**. It
+  came from a malformed JSON file that was edited until it parsed - readable, not
+  correct - and roughly 30 scenarios were lost. Nothing from it survives.
+- **`planning/viscose-import.py`** builds the dataset from the CSV export, so a
+  revised sheet is one command away rather than a hand-edit. Dry-run by default.
+- **The "matty rank (real)" column is dropped** from Expert, leaving 6 ranks
+  (interloper - eclipse). Each difficulty has its own ladder and its own *number*
+  of ranks: Medium 9, Hard 8, Expert 6.
+- Easier is not shipped.
+
+Checked against real history: Hard shows 38/39 scenarios played, and
+Smoothsphere Viscose Hard reads PB 11,061 -> **Velvet**, avg 9,419 -> **Wool**,
+against thresholds Wool 9,000 through Silk 13,400 exactly as the sheet has them.
+
+### "Log every run"
+
+- **The app now offers to explain how to make restarts countable.** While that
+  setting is off in KovaaK's, a restart never reaches the stats folder at all, so
+  the restart counter would sit at a permanent zero - a lie rather than a
+  measurement. It is now **hidden entirely** unless the setting is on.
+- In its place, a one-time suggestion: what to turn on, and the honest trade-off
+  (it writes a CSV per restart, which clutters the folder and any other tool
+  reading it - this app filters them out of every statistic automatically).
+- **Dismissed forever with one click**, remembered per build. Nobody needs to be
+  told twice.
+- The setting is detected from the data itself rather than asked about: a
+  zero-length run that still scored can only exist if the game wrote a file for
+  an abandoned attempt.
+
 ## v0.3.1 - 2026-09-01
 
 **TL;DR - a release no longer carries anyone's stats folder, the project has a

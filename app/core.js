@@ -501,6 +501,32 @@ function fmtDur(sec){
 // are being thrown away until one starts well, which measures luck rather than
 // aim. Only fires once there are enough completed runs for the ratio to mean
 // anything - two resets on your first run is just finding your grip.
+// "Log every run" in KovaaK's is off by default, and while it is off a restart
+// never reaches the stats folder at all - so the restart counter would sit at a
+// permanent zero, which is a lie rather than a measurement. Detect the setting
+// from the data itself: a zero-length run that still scored can only exist if
+// the game wrote a file for an attempt that was abandoned.
+function logEveryRunOn(){
+  return RUNS.some(r => r.reset);
+}
+
+// Suggested once, dismissed forever. Nobody needs to be told twice.
+function logHintDismissed(){ return lsGet('kva_loghint') === '1'; }
+function dismissLogHint(){ lsSet('kva_loghint', '1'); }
+
+function logEveryRunHint(){
+  if(logEveryRunOn() || logHintDismissed()) return '';
+  return '<div class="loghint">' +
+    '<b>Want a restart counter?</b> Turn on <b>“Log every run”</b> in KovaaK\'s ' +
+    '(Settings &rsaquo; Game). Restarts are invisible to this app until you do — ' +
+    'the game only writes a file for runs you finish, so there is nothing to count.' +
+    '<span class="dim"> The trade-off: it writes a CSV for every restart too, which ' +
+    'clutters the stats folder and any other tool reading it. This app filters them ' +
+    'out of every statistic automatically.</span>' +
+    '<button type="button" id="logHintNo" class="minibtn" style="float:none;margin-left:10px">Don\'t show again</button>' +
+    '</div>';
+}
+
 function resetDiagnosis(s){
   if(!s || !s.resets || s.completed < TUNING.RESET_ALERT_MIN_RUNS) return null;
   const byStreak = s.maxResetStreak > TUNING.RESET_RATIO_ALERT;
@@ -1980,15 +2006,18 @@ function renderSessionPanel(){
           (s.activePct != null ? ' <span class="ci">(' + s.activePct.toFixed(0) + '%)</span>' : '')) +
         card('Median gap', s.medGap != null ? s.medGap.toFixed(1) + 's' : '—') +
         card('Scenarios', s.scens) +
-        (s.resets ? card('Restarts', s.resets +
+        (logEveryRunOn() ? card('Restarts', s.resets +
           (s.maxResetStreak > 1 ? ' <span class="ci">(' + s.maxResetStreak + ' in a row)</span>' : '')) : '') +
         card('Today', tRuns + ' runs · ' + fmtDur(tPlay) + ' played') +
       '</div>' + cov +
       (resetWarn ? '<p class="resetalert">' + esc(resetWarn) + '</p>' : '') +
+      logEveryRunHint() +
       (rush ? '<p class="stalewarn">' + esc(rush) + '</p>' : '')) +
     '</div>';
   const t = document.getElementById('sessionToggle');
   if(t) t.addEventListener('click', () => { sessionCollapsed = !sessionCollapsed; renderSessionPanel(); });
+  const lh = document.getElementById('logHintNo');
+  if(lh) lh.addEventListener('click', () => { dismissLogHint(); renderSessionPanel(); });
   const f = document.getElementById('followScen');
   if(f) f.addEventListener('change', () => {
     followScen = f.checked; saveFollowScen();

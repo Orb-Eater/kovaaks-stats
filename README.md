@@ -73,7 +73,8 @@ Requires **Python 3.8+**. No pip install, no dependencies — standard library o
   best and worst performing sensitivity bands; per-cm PBs. Runs at different
   sensitivities are not the same distribution, so pooling them is treated as a
   bug, not a view option.
-- **Benchmarks** — 216 of them, searchable, with your rank against each threshold.
+- **Scenario testing** — Viscose Benchmarks S2 (Medium, Hard, Expert), searchable,
+  with your rank against every threshold.
 - **Session tracking** — time in KovaaK's vs time actually playing, gaps between
   runs, restart-spam detection, configurable break reminders.
 - **Honest charts** — σ-scaled axes, a ±1σ noise band, PB drawn as a step

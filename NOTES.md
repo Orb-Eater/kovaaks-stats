@@ -74,7 +74,7 @@ KovaaksStats/
     simple.html        reduced markup, same core.js
     core.js            all logic (~1200 lines)
     styles.css
-    data/benchmarks.json   216 benchmarks, consolidated from L:\Claude\Benchmarks
+    data/benchmarks.json   Viscose Benchmarks S2, built by planning/viscose-import.py
 ```
 
 `L:\Claude\kovaaks-consistency.html` is the old single-file version, kept as a
@@ -87,7 +87,7 @@ reference. It is superseded by this folder.
 | `GET /api/runs` | all parsed runs, `{version, folder, names[], rows[]}` |
 | `GET /api/version` | `{version, runs, scanning}` — client polls every 5s |
 | `GET /api/config` | `{appVersion, port, folder, valid, reason, runs, candidates[]}` |
-| `GET /api/benchmarks` | the 216-benchmark array |
+| `GET /api/benchmarks` | the benchmark array (Viscose S2: Medium, Hard, Expert) |
 | `POST /api/folder` | `{folder}` → validate, index, persist to config.json |
 | `POST /api/browse` | opens a native folder dialog, returns the chosen path |
 | `POST /api/log` | `{session, entries[]}` → appended to `logs/session-*.log` |
@@ -174,11 +174,28 @@ If renders get slow again, measure this function first.
 
 ## Benchmarks
 
-- Source: `L:\Claude\Benchmarks\benchmarks\*.json` (216 files), consolidated by a
-  throwaway script into `app/data/benchmarks.json` as
-  `{name, kbid, scenarios:[{n, r:[{n,t}]}]}` (`t` = score threshold).
-- `kbid` is the KovaaK's benchmark id and doubles as the evxl.app URL segment:
-  `https://evxl.app/leaderboards/<kbid>`.
+- Source: the Viscose Benchmarks S2 CSV export in
+  `L:\Claude\Benchmarks\Viscose s2\csv\`, one file per difficulty. Built by
+  **`planning/viscose-import.py`** (dry-run by default, `--write` to commit) into
+  `app/data/benchmarks.json` as `{name, kbid?, scenarios:[{n, r:[{n,t}]}]}`
+  (`t` = score threshold). Rerun it whenever the sheet is revised.
+- **Medium / Hard / Expert only** — 39 scenarios each, 117 in total. Easier is
+  not shipped.
+- Each difficulty has its own rank ladder and its own *number* of ranks: Medium 9
+  (cinnabar..fuchsia), Hard 8 (Wool..Silk), Expert 6 (interloper..eclipse). Do
+  not assume a fixed count anywhere.
+- The sheet is a working draft. Rank columns are followed by working columns
+  (evxl population data, revision notes) which are **not** ranks; the importer
+  stops at the first header matching data/notes/changes/count. Expert's trailing
+  **`matty rank (real)`** column is dropped on purpose — it is not a rank anyone
+  is measured against.
+- This **replaced** the previous 216-benchmark dataset outright. That one
+  included a Viscose S2 Medium built from a malformed JSON file that was edited
+  until it parsed — readable, not correct, with ~30 of its 39 scenarios lost.
+  Nothing from it survives.
+- `kbid` (the KovaaK's benchmark id, which doubles as the evxl.app URL segment
+  `https://evxl.app/leaderboards/<kbid>`) is absent from the sheet, so the
+  evxl link is simply not rendered. The UI already guards on it.
 - **Overall rank = weakest link**: the lowest tier cleared across all scenarios.
   Shown twice — from all-time PB, and from the window average.
 - Scenario matching is exact on trimmed+lowercased names. Unmatched scenarios are

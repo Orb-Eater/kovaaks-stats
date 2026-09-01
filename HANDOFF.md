@@ -50,7 +50,7 @@ so you can tell at a glance which one you are looking at.
 | `app/index.html` | Full view. |
 | `app/simple.html` | Stripped-back view. Omits markup; `$()` returns a detached stub for missing ids so the same script runs on both. |
 | `app/styles.css` | All styling. |
-| `app/data/benchmarks.json` | 216 benchmarks consolidated from `L:\Claude\Benchmarks\`. |
+| `app/data/benchmarks.json` | Viscose Benchmarks S2 — Medium/Hard/Expert, 39 scenarios each. Rebuilt by `planning/viscose-import.py`. |
 | `release.py` | Freezes the working copy into `releases/vX.Y.Z/` with its own port. |
 | `publish.py` | Publishes a frozen release to GitHub as **base** or **beta**. Does nothing without `--yes`. |
 | `LICENSE` | MIT. |
@@ -177,7 +177,8 @@ Working and verified on ~21,600 real runs (Batch 8 spot-checked via
 - **"Mostly idle this session" popup** under 40% active play, once per
   session, dismissible.
 - cm/360 coverage 100%. Filtering by exact cm, range, or favourites.
-- 216 benchmarks, searchable, with rank thresholds.
+- Scenario testing: Viscose Benchmarks S2 (Medium/Hard/Expert), searchable,
+  with rank thresholds.
 - Session tracking: gaps, active %, daily totals, break reminders.
 - PB celebration tiers with confetti.
 - **Honest chart scaling** — σ-scaled axes, ±1σ noise band, PB as steps, 2:1

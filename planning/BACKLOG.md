@@ -253,12 +253,6 @@ Your words: *"We need to remove all the text clutter everywhere."*
 
 ## Batch 9 — layout and calendar → v0.4.0
 
-- [ ] **Restart counter in the side space** (your answer: not in the runs list).
-      Its own small readout, and **only rendered when "log every run" is on in
-      KovaaK's** — with the setting off no restart ever reaches the stats folder,
-      so a permanent "0 restarts" would be a lie rather than a measurement.
-      Detect it the same way the count works: if the history contains any
-      zero-length scored run, the setting is on.
 
 - [ ] Widen the page: **1920px default, 2560px cap** (your answer). Current cap is
       1180px. 1200px must stay usable; **5120px full support eventually**.
@@ -294,11 +288,10 @@ edit them without touching code.
 
 Scenario list is a plain document in `planning/baseline/scenarios.md`.
 
-⚠ Our bundled **Viscose S2 Medium has only 9 of 39 scenarios.** Its source JSON
-was malformed and I edited it until it parsed — which made it *readable*, not
-*correct*: ~30 scenarios were lost in the process and were never recovered. Do
-not treat that file as repaired. Easier / Hard / Expert are complete (39 each).
-Your new xlsx/CSV export replaces it.
+✅ **Fixed in v0.4.0.** The bundled Viscose S2 Medium used to have 9 of its 39
+scenarios — its source JSON was malformed and was edited until it parsed, which
+made it *readable*, not *correct*, losing ~30 scenarios. It is gone. All three
+shipped difficulties now come from your CSV export with 39 scenarios each.
 
 - [ ] Baseline page with curated scenarios per category
 - [ ] Two run-requirement tiers (quick check vs full skill map)
@@ -308,12 +301,12 @@ Your new xlsx/CSV export replaces it.
 - [ ] Strengths and weaknesses summary — **use z-scores, not % change**
       ([CHART-SCALING.md §7](../CHART-SCALING.md))
 - [ ] Baseline cm set to 45–50cm for now
-- [ ] **Rename the Benchmarks tab to "Scenario testing"**, holding the Viscose
-      benchmarks. The 216 bundled benchmarks are replaced wholesale, not merged.
-- [ ] **Viscose raw sheet ingest** from `L:\Claude\Benchmarks\Viscose s2\`
-      (xlsx + Easier / Medium / Hard / Expert CSVs). **Ignore the "matty" rank**
-      entirely. These replace the whole benchmark dataset, which also retires the
-      broken Medium file below.
+- [x] **Renamed the Benchmarks tab to "Scenario testing"** — *v0.4.0*
+- [x] **Viscose S2 Medium/Hard/Expert ingested**, matty dropped, 39 scenarios
+      each. Built by `planning/viscose-import.py`. — *v0.4.0*
+- [ ] **You wanted to overhaul this tab yourself** — the rename and the data are
+      in place so there is something real to work against. Say what you want it
+      to become and I will build it.
 - [ ] **Playlist import via share code** (e.g. `KovaaKsPlunderingOlivegreenClutch`).
       Outbound API calls are approved, so this resolves server-side against
       KovaaK's rather than needing an offline export. First feature to make a
@@ -348,26 +341,30 @@ Your new xlsx/CSV export replaces it.
 Every one of these ends in a bare **`=`**. Write your answer after it; I read them
 at the start of the next session. Answered ones move to *Answered* at the bottom.
 
-- **[?] Your dev stats folder is `C:\Users\Toms\Downloads\eden csv`** (1500
-  runs), set by you at 05:25 on 2026-09-01. Deliberate, or back to Steam? New
-  releases no longer inherit it, and I cleared it out of v0.2.1 and v0.3.0, so
-  this only affects the working copy at `L:\Claude\KovaaksStats`.
+- **[?] Push v0.4.0?** It is committed and tagged locally but **not pushed** — the
+  standing instruction is to ask first. `git push origin master --follow-tags`,
+  and `python publish.py 0.4.0 --beta --yes` if you want it downloadable as the
+  beta channel alongside base v0.3.1.
   =
 
-- **[?] What does "log every run" turn into for other people?** The restart
-  counter only appears when the setting is on. For someone who has it off, do you
-  want the app to *suggest* enabling it (with the caveat that it writes a CSV per
-  restart and clutters other tools), or stay silent?
-  =
-
-- **[?] Viscose: which difficulties ship?** Easier / Medium / Hard / Expert are
-  all in the export. All four, or a subset? And is "Scenario testing" a rename of
-  the existing tab or a new page with benchmarks kept somewhere else?
+- **[?] What should "Scenario testing" become?** You said you want to overhaul it
+  yourself. The rename and the Viscose S2 data are in place, so there is a real
+  thing to change rather than a blank page. Tell me the shape you want — per-rank
+  progress, what is closest to the next rank, a weakest-link view, something else
+  — and I will build it.
   =
 
 ---
 
 ## Answered
+
+- **Dev stats folder** → moved to `L:\Claude\Kovaaks Folder\stats` (21,453 runs).
+- **Log-every-run suggestion** → yes, shown once when the setting is off, with the
+  clutter trade-off stated; dismissed forever with one click; remembered per
+  build. The restart counter is hidden entirely while the setting is off, rather
+  than showing a permanent zero. *v0.4.0.*
+- **Viscose difficulties** → **Medium, Hard, Expert**. Easier not shipped. Matty
+  rank dropped. Benchmarks tab renamed **Scenario testing**. *v0.4.0.*
 
 - **Push + publish** → done 2026-09-01. `master` and all four tags are on
   `Orb-Eater/kovaaks-stats` (private). **v0.3.1 published as `base`** —

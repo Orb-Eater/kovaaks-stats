@@ -348,20 +348,6 @@ Your new xlsx/CSV export replaces it.
 Every one of these ends in a bare **`=`**. Write your answer after it; I read them
 at the start of the next session. Answered ones move to *Answered* at the bottom.
 
-- **[?] Nothing is pushed, and pushing is on hold.** The repo exists at
-  `https://github.com/Orb-Eater/kovaaks-stats` (private) with the first commits
-  up. Still local: `master` is **ahead** by the v0.3.0 and v0.3.1 commits, and
-  **no tags are on the remote**. One command sends both when you want it:
-  `git push origin master --follow-tags`.
-  **Standing instruction from 2026-09-01: do not push without being asked.**
-  =
-
-- **[?] Which build is base, which is beta?** `publish.py` is built and ships two
-  GitHub releases at a time (see README, "Two downloads, not twenty"). Nothing has
-  been published yet. My read of what you said: **v0.3.0 becomes base** once it is
-  pushed, and the next feature release becomes beta. Confirm, or name them.
-  =
-
 - **[?] Your dev stats folder is `C:\Users\Toms\Downloads\eden csv`** (1500
   runs), set by you at 05:25 on 2026-09-01. Deliberate, or back to Steam? New
   releases no longer inherit it, and I cleared it out of v0.2.1 and v0.3.0, so
@@ -382,6 +368,11 @@ at the start of the next session. Answered ones move to *Answered* at the bottom
 ---
 
 ## Answered
+
+- **Push + publish** → done 2026-09-01. `master` and all four tags are on
+  `Orb-Eater/kovaaks-stats` (private). **v0.3.1 published as `base`** —
+  `kovaaks-stats-0.3.1.zip`, 216 KB, verified by downloading it back and running
+  it. Nothing on `beta` yet; the next feature release goes there.
 
 - **Calendar metric** → **Typical (trimmed mean) change** per month, plus fun
   facts: new scenarios tried (0 runs before the month, >=1 during), PB count,

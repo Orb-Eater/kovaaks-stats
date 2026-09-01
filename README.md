@@ -83,6 +83,13 @@ Requires **Python 3.8+**. No pip install, no dependencies — standard library o
   app exists to avoid.
 - **Scenario testing** — Viscose Benchmarks S2 (Medium, Hard, Expert), searchable,
   with your rank against every threshold.
+- **A month calendar** — this month and the four before it, each with its Typical
+  change against the month before, the days you played, and how many scenarios
+  you tried for the first time.
+- **Explanations you can read** — one yellow warning symbol per scenario opens a
+  panel saying exactly what applies to it: how many more runs it needs, whether
+  it is leaning on a stand-in baseline, how long since you played it. The menu
+  bar has the icon key and the reasoning behind every number.
 - **Session tracking** — time in KovaaK's vs time actually playing, gaps between
   runs, restart-spam detection, configurable break reminders.
 - **Honest charts** — σ-scaled axes, a ±1σ noise band, PB drawn as a step

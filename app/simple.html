@@ -7,6 +7,21 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
+<nav class="menubar" id="menubar">
+  <button type="button" class="menubtn" data-doc="icons">Icon meanings</button>
+  <button type="button" class="menubtn" data-doc="calc">Calculation and reasoning</button>
+</nav>
+
+<div class="sidetab-scrim" id="sidetabScrim" hidden></div>
+<aside class="sidetab" id="sidetab" hidden aria-labelledby="sidetabTitle">
+  <div class="sidetab-head">
+    <h2 id="sidetabTitle">&nbsp;</h2>
+    <button type="button" class="sidetab-x" id="sidetabClose" aria-label="Close">&#10005;</button>
+  </div>
+  <div class="sidetab-body" id="sidetabBody"></div>
+</aside>
+
 <div class="wrap">
 
 <h1>KovaaK's stats</h1>
@@ -24,7 +39,6 @@
   <div id="folderSetup" style="display:none"></div>
   <div id="loadmsg"></div>
 </div>
-<div id="liveNote"></div>
 <div id="whatsNew" style="display:none"></div>
 
 <div id="app" style="display:none">
@@ -116,12 +130,9 @@
       <span class="note" id="breakStatus" style="margin:0"></span>
     </span>
   </div>
-  <div id="breakAlert"></div>
-  <div id="lowActiveAlert"></div>
   <div id="sessionPanel"></div>
   <!-- PB / new-score card: under the session panel so it lands
        where you are already looking, not above the fold. -->
-  <div id="celebrate"></div>
   <div class="cards" id="overview"></div>
   <div class="explainrow" id="caveatsRow" style="display:none">
     <button type="button" class="explaintoggle" id="caveatsBtn" aria-expanded="false">Show figure explanation</button>

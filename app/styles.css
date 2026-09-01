@@ -7,7 +7,14 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
-.wrap{max-width:1180px;margin:0 auto;padding:40px 28px 80px}
+/* Grows with the screen and stops at 2560. A 1920 monitor fills; a 2560 one
+   fills; anything wider stays at 2560 until the layout earns more (5120 is a
+   later job - past ~2560 the answer is more columns, not longer lines).
+   Narrow screens just get a narrower page, so 1200px stays usable. */
+.wrap{max-width:2560px;margin:0 auto;padding:40px 28px 80px}
+/* Prose stays readable no matter how wide the page gets. Line length is a
+   reading constraint, not a layout one. */
+.sub,.note,.explainrow{max-width:104ch}
 h1{font-size:26px;font-weight:500;margin:0 0 6px;letter-spacing:-0.01em}
 .sub{color:var(--ink2);font-size:14px;margin:0 0 32px;max-width:64ch}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:22px;margin-bottom:28px;transition:padding .15s,margin .15s}
@@ -140,6 +147,12 @@ tr:last-child td{border-bottom:none}
    change, so it gets no colour at all. */
 .ns{color:var(--ink2)}
 .ci{color:var(--ink3);font-size:.85em;white-space:nowrap}
+/* nowrap keeps a CI like "+2.1 ± 0.8%" from breaking across lines, but a long
+   parenthetical in a narrow card then pushes the whole grid wider than the
+   page. Cards get to wrap; the CI itself still does not. */
+.card{min-width:0}
+.card .v{overflow-wrap:anywhere}
+.card .v .ci{white-space:normal}
 .card .vsub.ci{font-size:15px;font-weight:500;color:var(--ink3)}
 .cards.hero .card.big .vsub.ci{font-size:17px}
 .recordtag{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);border:1px solid var(--line);border-radius:4px;padding:1px 4px;margin-left:5px;vertical-align:middle}
@@ -170,6 +183,9 @@ tr:last-child td{border-bottom:none}
 .celebrate.big .celebrate-t{font-size:23px;color:var(--best)}
 .celebrate-s{font-size:13px;color:var(--ink2);font-family:var(--mono);margin-top:3px}
 .confetti{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+/* A personal best gets the whole window, not a corner of one card. Sits under
+   the toasts so the text stays readable, and ignores the mouse entirely. */
+.confetti-full{position:fixed;inset:0;width:100vw;height:100vh;z-index:9998;pointer-events:none}
 @keyframes popin{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
 .sessup{font-size:11.5px;font-weight:600;color:var(--best);background:rgba(95,185,138,.12);
   border:1px solid rgba(95,185,138,.35);border-radius:999px;padding:2px 9px;margin-left:6px;
@@ -339,3 +355,153 @@ tr:last-child td{border-bottom:none}
 .labnum{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--ink2)}
 .labnum input{width:74px}
 .dim{color:var(--ink3)}
+
+/* ---- notifications ------------------------------------------------------
+   Above everything. They used to be divs in the page flow, so every one of
+   them shoved the layout down as it arrived and snatched it back when it left,
+   and anything that appeared below the fold was not a notification at all. */
+.toastlayer{position:fixed;right:18px;bottom:18px;z-index:9999;
+  display:flex;flex-direction:column;gap:10px;align-items:flex-end;
+  width:min(430px,calc(100vw - 36px));pointer-events:none}
+.toast{pointer-events:auto;width:100%;position:relative;
+  background:var(--surface2);border:1px solid var(--line);border-radius:10px;
+  padding:13px 38px 13px 15px;font-size:13px;line-height:1.55;color:var(--ink2);
+  box-shadow:0 10px 34px rgba(0,0,0,.45);
+  opacity:0;transform:translateY(14px);transition:opacity .22s ease,transform .22s ease}
+.toast.in{opacity:1;transform:none}
+.toast.out{opacity:0;transform:translateY(8px)}
+.toast b{color:var(--ink)}
+.toast .dim{color:var(--ink3)}
+.toast-x{position:absolute;top:7px;right:7px;background:none;border:none;
+  color:var(--ink3);font-size:13px;line-height:1;padding:4px 6px;cursor:pointer;border-radius:5px}
+.toast-x:hover{color:var(--ink);background:rgba(255,255,255,.06)}
+.toast-warn{background:#3a2e14;border-color:#7c6a2b;color:#f0d68a}
+.toast-warn b{color:#ffe9a8}
+.toast-warn .toast-x{color:#c9b169}
+.toast-warn .toast-x:hover{color:#ffe9a8}
+.toast-good{border-left:3px solid var(--best)}
+.toast-celebrate{background:none;border:none;box-shadow:none;padding:0}
+.toast-celebrate .toast-x{top:11px;right:11px;z-index:3}
+.toast-celebrate .celebrate{margin:0}
+@media(prefers-reduced-motion:reduce){
+  .toast{transition:opacity .01s}
+  .toast,.toast.out{transform:none}
+}
+
+/* ---- top menu bar -------------------------------------------------------- */
+.menubar{position:sticky;top:0;z-index:60;display:flex;gap:4px;flex-wrap:wrap;
+  padding:7px 14px;background:rgba(18,19,15,.88);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line)}
+.menubtn{font:inherit;font-size:12.5px;background:none;border:1px solid transparent;
+  color:var(--ink2);padding:5px 11px;border-radius:7px;cursor:pointer}
+.menubtn:hover{color:var(--ink);background:var(--surface2);border-color:var(--line)}
+.menubtn[aria-expanded="true"]{color:var(--ink);background:var(--surface2);border-color:var(--med)}
+
+/* ---- the reference drawer ------------------------------------------------
+   Reference material was hover text on a 12px icon, which is where text goes
+   to not be read. It opens in a panel you can actually sit and read. */
+.sidetab-scrim{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);
+  opacity:0;transition:opacity .2s}
+.sidetab-scrim.in{opacity:1}
+/* display:flex would otherwise beat the [hidden] attribute and leave the drawer
+   permanently on screen. */
+.sidetab[hidden],.sidetab-scrim[hidden]{display:none}
+.sidetab{position:fixed;top:0;right:0;bottom:0;z-index:9001;
+  width:min(560px,calc(100vw - 32px));background:var(--surface);
+  border-left:1px solid var(--line);box-shadow:-18px 0 50px rgba(0,0,0,.5);
+  display:flex;flex-direction:column;
+  transform:translateX(100%);transition:transform .24s ease}
+.sidetab.in{transform:none}
+.sidetab-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:16px 20px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.sidetab-head h2{font-size:16px;font-weight:500;margin:0}
+.sidetab-x{background:none;border:none;color:var(--ink2);font-size:15px;cursor:pointer;
+  padding:6px 9px;border-radius:6px}
+.sidetab-x:hover{color:var(--ink);background:var(--surface2)}
+.sidetab-body{overflow-y:auto;padding:18px 20px 40px;font-size:13.5px;line-height:1.65;
+  color:var(--ink2)}
+.sidetab-body h3{font-size:13.5px;font-weight:600;color:var(--ink);margin:22px 0 6px}
+.sidetab-body h3:first-child{margin-top:0}
+.sidetab-body p{margin:0 0 10px}
+.sidetab-body code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+.sidetab-body b{color:var(--ink)}
+.sidetab-body .keyrow{display:flex;gap:11px;align-items:flex-start;margin:0 0 13px}
+.sidetab-body .keysym{flex:0 0 auto;min-width:26px;text-align:center;font-size:15px}
+@media(prefers-reduced-motion:reduce){
+  .sidetab{transition:none}
+  .sidetab-scrim{transition:none}
+}
+
+/* ---- two columns once there is room -------------------------------------- */
+.applayout{display:grid;grid-template-columns:minmax(0,1fr);gap:26px;align-items:start}
+.maincol{min-width:0}
+.sidecol{min-width:0}
+@media(min-width:1500px){
+  .applayout{grid-template-columns:minmax(0,1fr) 390px}
+  /* The session panel is a live readout, so it stays put while you scroll the
+     scenario list. Only the panel, not the whole column: a sticky column taller
+     than the viewport can never be scrolled to its own bottom, which would
+     leave the last two months of the calendar permanently out of reach. */
+  .sidecol #sessionPanel{position:sticky;top:52px;z-index:2}
+}
+
+/* The one warning symbol a card gets. Yellow, obvious, and a button rather
+   than hover text - the explanation opens in the drawer where it can be read. */
+.warnsym{font:inherit;font-size:13px;line-height:1;background:rgba(232,195,74,.13);
+  color:#e8c34a;border:1px solid rgba(232,195,74,.42);border-radius:6px;
+  padding:2px 7px;margin-left:5px;cursor:pointer;vertical-align:middle}
+.warnsym:hover{background:rgba(232,195,74,.24);color:#ffe9a8}
+.warnsym:focus-visible{outline:1px solid #e8c34a;outline-offset:2px}
+.sidetab-body .keysym.warnsym{cursor:default;margin:0}
+.sidetab-body .keysym{color:var(--ink2)}
+.sidetab-body .earlytag{border-color:var(--ink3)}
+
+/* ---- month calendar ------------------------------------------------------
+   Five months in the space the session panel freed up. One measured number per
+   month and a day strip, so a month you barely touched looks like one. */
+.calwrap{margin-top:16px}
+.calnote{font-size:11.5px;color:var(--ink3);margin:0 0 14px;line-height:1.5}
+.calmonth{border-top:1px solid var(--line);padding:12px 0 13px}
+/* The day strip is a fixed 123px wide, so the facts sit beside it rather than
+   under it and each month stays about one card tall. */
+.calbody{display:flex;gap:14px;align-items:flex-start}
+.calbody .calside{min-width:0;flex:1}
+.calmonth:last-child{padding-bottom:2px}
+.calhead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-size:13px;margin-bottom:8px}
+.calhead b{font-weight:500;color:var(--ink)}
+.calhead .up,.calhead .dn,.calhead .ns,.calhead .calnone{font-family:var(--mono);
+  font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums;cursor:help}
+.calhead .calnone{color:var(--ink3);font-weight:400}
+/* Fixed-size squares. Stretching them to the column width gave 52px cells and
+   a calendar taller than the screen. */
+.caldays{display:grid;grid-template-columns:repeat(7,15px);gap:3px;margin-bottom:9px}
+.calday{display:block;width:15px;height:15px;border-radius:3px;background:var(--surface2);
+  border:1px solid transparent}
+.calday.pad{background:none}
+.calday.future{opacity:.25}
+.calday.l0{background:rgba(255,255,255,.045)}
+.calday.l1{background:rgba(74,158,224,.28)}
+.calday.l2{background:rgba(74,158,224,.48)}
+.calday.l3{background:rgba(74,158,224,.70)}
+.calday.l4{background:rgba(74,158,224,.95)}
+.calmeta{font-size:11.5px;color:var(--ink2);font-family:var(--mono)}
+.calfacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.calfact{font-size:11px;border-radius:999px;padding:2px 9px;border:1px solid var(--line);
+  color:var(--ink2)}
+.calfact.good{color:var(--best);border-color:rgba(95,185,138,.35);background:rgba(95,185,138,.10)}
+.calfact.new{color:#e8c34a;border-color:rgba(232,195,74,.35);background:rgba(232,195,74,.10)}
+
+/* A brief outline when the menu points at something already on screen. */
+@keyframes calflash{0%,100%{box-shadow:none}25%,60%{box-shadow:0 0 0 2px var(--med)}}
+.flash .calwrap,.calwrap.flash{animation:calflash 1.1s ease-in-out;border-radius:10px}
+
+/* Below 1500px the side column collapses into the page and the calendar has the
+   full width to itself - five months stacked in a 1100px column would be five
+   short rows in a lot of empty space, so they go side by side instead. */
+@media(max-width:1499px) and (min-width:780px){
+  .calwrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));
+    column-gap:24px;align-items:start}
+  .calwrap h3,.calwrap .calnote{grid-column:1/-1}
+  .calwrap .calmonth{padding-top:14px}
+}

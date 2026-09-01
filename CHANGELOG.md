@@ -5,6 +5,93 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.6.0 - 2026-09-01
+
+**TL;DR - Batch 9. Notifications moved on top of the page instead of inside it,
+a PB now throws confetti across the whole window, a session ends after 30
+minutes, the page uses the width of a real monitor, and the explanations left
+the 12px hover text for a panel you can actually read.**
+
+### Notifications are an overlay
+
+- **Every notification is now a card in the bottom-right corner, above the
+  page.** They used to be divs in the document flow, so each one shoved the
+  layout down as it arrived and snatched it back when it left - and one that
+  landed below the fold while you were reading a chart was not a notification
+  at all, it was something you found later.
+- Break reminders, the idle nudge, the "mostly idle session" popup, the
+  restart-spam warning, the "log every run" suggestion, the live "just played"
+  note and every celebration tier all go through the same layer. One live card
+  per kind, so firing the same thing twice replaces it rather than stacking.
+- Each one is dismissible; the ones that are advice rather than events stay up
+  until you dismiss them.
+
+### A PB takes over the screen
+
+- **Confetti is full screen.** It used to be trapped inside the celebration
+  card, which is a small box in a corner of the page. The piece count scales
+  with the window area and they fall faster, so a 1080p screen fills in about
+  two seconds rather than drizzling for ten.
+
+### Sessions end after 30 minutes
+
+- **A new session starts after 30 minutes with no completed run**, down from 60.
+  Closing KovaaK's, taking a walk or being pulled away for half an hour is a
+  different sitting, and calling it one four-hour session made "time in
+  KovaaK's" and the active-play percentage describe something nobody did.
+- **Sittings on the same day are tied together rather than merged or lost.** The
+  session panel shows the break before this one and which sitting of the day it
+  is; the Today card totals every sitting and how long you spent between them.
+- **"Time in KovaaK's" is live.** It used to update only when a run landed,
+  which froze it exactly when you wanted to watch it - during a break. It now
+  ticks from the PC clock and re-validates against the run history every minute.
+  Past the 30-minute gap it stops, because that is no longer this session.
+
+### The page uses the monitor
+
+- **Width cap raised from 1180px to 2560px.** A 1920 monitor fills, a 2560
+  monitor fills, wider stays at 2560 until the layout earns more. Prose keeps a
+  readable line length regardless.
+- **The session panel moved to the right.** Above 1500px the app is two columns
+  with the session readout and the month calendar on the right; the panel stays
+  put while you scroll the scenario list. Below that the columns collapse and
+  both appear inline, so nothing becomes unreachable on a 1200px screen.
+
+### Explanations you can read
+
+- **A top-left menu bar** with **Icon meanings**, **Calculation and reasoning**
+  and **Month calendar**.
+- **One yellow warning symbol per scenario card**, replacing the two 12px icons
+  whose explanations lived in hover text. Click it and a side panel says exactly
+  what applies to that scenario: how many more runs it needs and roughly how
+  many days that is at your pace, whether it is leaning on a stand-in baseline,
+  how long since you played it, and how many of its runs scored zero.
+- The same panel holds the icon key and a plain-language account of the
+  reasoning: why PBs are not turned into percentages, what the three numbers
+  are, why a change can be "not significant", why the required run count differs
+  per scenario, what is excluded and why.
+
+### Month calendar
+
+- **This month and the four before it**, in the space the session panel freed.
+- **One measured number per month: Typical, the trimmed mean**, against the
+  month before. Ceiling (p90) and Floor (p10) are quantiles and need more runs
+  than a month usually holds - putting them here would be two confident-looking
+  numbers beside one honest one. Grey means the interval spans zero.
+- A day strip per month, shaded by runs, so a month you barely touched looks
+  like one.
+- Fun facts: **"X new scenarios tried!"** and a PB count. Both are counted over
+  every run you played rather than the filtered pool - trying something for the
+  first time is a fact about your month, not a measurement. The panel is explicit
+  that a PB count rises fastest when you try new things, and is not a skill
+  measure.
+
+### Checks
+
+- Nine new self-test checks: the 30-minute split, that 20 minutes does not
+  split, same-day sitting numbering and the break between them, and that "new
+  scenarios tried" and the PB count exclude what they should. 51 total.
+
 ## v0.5.0 - 2026-09-01
 
 **TL;DR - a cm chip now filters the card you clicked instead of the whole page,

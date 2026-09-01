@@ -287,24 +287,29 @@ Requested mid-flight, shipped ahead of Batch 9. Full detail in `CHANGELOG.md`.
       something the app does not do. Linked from the footer on dev builds only.
 - [x] Six new self-test checks pinning the chip fix. 42 total.
 
-## Batch 9 — layout and calendar  ← **next**
+### Batch 9 — layout, calendar and readable explanations → v0.6.0
 
+- [x] Page widened: cap **1180px → 2560px**. Fills a 1920 monitor, fills a 2560
+      one, stops there. 1200px verified usable; 5120 still later. — *v0.6.0*
+- [x] **Top-left menu bar**: Icon meanings, Calculation and reasoning, Month
+      calendar. — *v0.6.0*
+- [x] **Month calendar**, this month + 4 previous, **Typical (trimmed mean) only**
+      against the month before, with a per-day strip. — *v0.6.0*
+- [x] Fun facts: **"X new scenarios tried!"** and a PB count, both counted over
+      every run played rather than the filtered pool. — *v0.6.0*
+- [x] **Session panel moved to the right side** (two columns above 1500px, both
+      inline below it). — *v0.6.0*
+- [x] **Live "Time in KovaaK's"** — ticks from the PC clock, re-validates against
+      the run history every minute, stops at the session gap. — *v0.6.0*
+- [x] **Notifications became an overlay** above the page rather than divs in the
+      flow, and **PB confetti went full screen**. — *v0.6.0*
+- [x] **Sessions split at 30 minutes** instead of 60, with same-day sittings
+      keeping the break between them. — *v0.6.0*
+- [x] **Reference drawer**: one yellow warning symbol per card, opening a panel
+      with that scenario's caveats, plus the icon key and the reasoning. Replaces
+      the 12px hover text. — *v0.6.0*
 
-- [ ] Widen the page: **1920px default, 2560px cap** (your answer). Current cap is
-      1180px. 1200px must stay usable; **5120px full support eventually**.
-- [ ] **Top menu bar** so 1200px users can still reach the calendar view.
-- [ ] **Month calendar** in the newly free side space: current month + the 4
-      previous. Per month, **Typical (trimmed mean) change only** — Ceiling and
-      Floor need more runs than one month usually holds, so showing them would be
-      three numbers where only one is trustworthy.
-- [ ] Alongside it, the fun facts: **"X new scenarios tried!"** — scenarios with
-      **0 runs before that month and >=1 during it** — plus a PB count and the
-      avg %.
-- [ ] **Session bar moves to the right side.**
-- [ ] **Live "Time in KovaaK's".** Today it only updates when a run lands. Tick it
-      from the PC clock and re-validate against the last run once a minute.
-
-## Batch 10 — score-by-cm analysis
+## Batch 10 — score-by-cm analysis  ← **next**
 
 Rules live in `planning/scenario-analysis/categories.md` as plain text so you can
 edit them without touching code.
@@ -377,11 +382,11 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
 Every one of these ends in a bare **`=`**. Write your answer after it; I read them
 at the start of the next session. Answered ones move to *Answered* at the bottom.
 
-- **[?] Push v0.4.0 and v0.5.0?** Both are committed and tagged locally and
-  **neither is pushed** — the standing instruction is to ask first.
-  `git push origin master --follow-tags`, and `python publish.py 0.5.0 --beta
-  --yes` if you want the newest one downloadable as the beta channel alongside
-  base v0.3.1.
+- **[?] Anything you want changed before the GitHub push?** Your instruction is
+  to push once **every currently planned batch is finished** — that is Batches 9
+  through 13. Batch 9 shipped as v0.6.0; 10, 11, 12 and 13 are still to go, so
+  v0.4.0, v0.5.0 and v0.6.0 are all sitting committed and tagged locally,
+  unpushed, waiting for that. Say if you would rather have them up sooner.
   =
 
 - **[?] What should "Scenario testing" become?** You said you want to overhaul it
@@ -427,11 +432,15 @@ at the start of the next session. Answered ones move to *Answered* at the bottom
 - **GitHub repo** → created private as `Orb-Eater/kovaaks-stats` by a separate
   session. Push work is on hold above.
 - **X.com handle** → `https://x.com/OrbEater_`, X logo, clickable. *v0.0.9.*
-- **Site width** → 1920 default, 2560 cap now, 5120 eventually. *Batch 9 — the
-  next one.* The **session bar moving to the right side** is in the same batch:
-  it only makes sense once the page is wide enough to have a right side.
-  Batch numbers no longer carry a version (see the note at the top), so Batch 9
-  is still Batch 9 even though v0.4.0 and v0.5.0 went to unplanned work.
+- **Site width** → 1920 default, 2560 cap now, 5120 eventually. **Shipped in
+  v0.6.0** along with the session bar moving to the right side, which only made
+  sense once the page was wide enough to have a right side.
+- **GitHub push timing** → push once every currently planned batch (9–13) is
+  finished. Recorded as a standing instruction, 2026-09-01.
+- **Notifications** → an overlay above the page, like a cookie banner, not part
+  of the layout. **PB confetti** → full screen. *v0.6.0.*
+- **Session gap** → 30 minutes, and same-day sittings keep the break between
+  them rather than being merged or forgotten. *v0.6.0.*
 - **Versioning** → batch = MINOR bump. *v0.1.0.* 0.1.0 -> 0.2.0, **not** 0.0.10.
 - **Confetti** → PB after 5+ prior runs, 10s, blinking. *v0.0.9.*
 - **Run resets** → detectable without score; excluded from the graph, counted in

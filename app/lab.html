@@ -9,6 +9,20 @@
 <body>
 <div class="wrap">
 
+<nav class="menubar" id="menubar">
+  <button type="button" class="menubtn" data-doc="icons">Icon meanings</button>
+  <button type="button" class="menubtn" data-doc="calc">Calculation and reasoning</button>
+  <button type="button" class="menubtn" data-doc="calendar">Months</button>
+</nav>
+<div class="sidetab-scrim" id="sidetabScrim" hidden></div>
+<aside class="sidetab" id="sidetab" hidden aria-labelledby="sidetabTitle">
+  <div class="sidetab-head">
+    <h2 id="sidetabTitle">&nbsp;</h2>
+    <button type="button" class="sidetab-x" id="sidetabClose" aria-label="Close">&#10005;</button>
+  </div>
+  <div class="sidetab-body" id="sidetabBody"></div>
+</aside>
+
 <h1>Effects lab</h1>
 <p class="sub">A workbench for the animations and notifications, fired on demand against
 synthetic runs. It loads the real <code>core.js</code>, so what you see here is exactly what the
@@ -31,7 +45,8 @@ app does — change the code, reload this page, watch it. Not linked from the ap
     <span class="note" style="margin:0">Live — no reload needed. These are <code>TUNING.CELEBRATE_MS</code>
     and <code>TUNING.CONFETTI_MS</code>; the lab does not write them back to the file.</span>
   </div>
-  <div id="celebrate"></div>
+  <p class="note">These now appear as an overlay in the bottom-right corner, above the page,
+  and a personal best throws confetti across the whole window.</p>
 </div>
 
 <div class="panel labpanel">
@@ -44,9 +59,6 @@ app does — change the code, reload this page, watch it. Not linked from the ap
     <button type="button" data-fire="idle">No completed run for a while</button>
     <button type="button" data-fire="live">Just played (live note)</button>
   </div>
-  <div id="breakAlert"></div>
-  <div id="lowActiveAlert"></div>
-  <div id="liveNote"></div>
 </div>
 
 <div class="panel labpanel">

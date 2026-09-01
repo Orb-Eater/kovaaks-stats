@@ -121,7 +121,11 @@ const FIRE = {
   pbcm:  () => celebrate(ACH.pbcm),
   high:  () => celebrate(ACH.high),
   first: () => celebrate(ACH.first),
-  clearcel: () => { document.getElementById('celebrate').innerHTML = ''; },
+  clearcel: () => {
+    dismissToast('celebrate');
+    const cv = document.getElementById('confettiCanvas');
+    if(cv) cv.remove();
+  },
 
   break: () => fireBreak('30 runs since your last break'),
   lowactive: () => {
@@ -170,9 +174,7 @@ const FIRE = {
 };
 
 function labSay(msg){
-  const el = document.getElementById('lowActiveAlert');
-  el.innerHTML = '<div class="breakalert">' + esc(msg) + '</div>';
-  setTimeout(() => { if(el.firstChild) el.innerHTML = ''; }, 6000);
+  toast('labsay', esc(msg), {kind:'warn', ms:8000});
 }
 
 document.addEventListener('click', e => {

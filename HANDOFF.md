@@ -171,6 +171,15 @@ Working and verified on ~21,600 real runs (Batch 8 spot-checked via
 - **Warnings are icons, not paragraphs.** ℹ️ (early-baseline in use) and ⚠️
   (under-powered, with a concrete "N more runs, ~M days" tooltip) sit next to
   the scenario name; hover/focus for the text.
+- **Notifications are an overlay** (`toast()` → `#toastLayer`), not divs in the
+  page flow. A PB throws **full-screen confetti**.
+- **Sessions split at 30 minutes**; sittings on the same day keep the break
+  between them (`breakBeforeSec`, `dayIndex`). "Time in KovaaK's" ticks live.
+- **Top-left menu bar** and a **reference drawer** (`openSideTab`,
+  `SIDETAB_DOCS`). One yellow warning symbol per card replaces the hover-text
+  icons; `scenCaveats()` builds what it says.
+- **Page caps at 2560px**, two columns above 1500px with the session panel and
+  **month calendar** on the right.
 - Scenario cards are **expanded by default**, with a **Full width** button that
   breaks one card out to 1920px (chart beside the numbers, 2:1 aspect kept).
 - **cm chips are a per-card toggle** — they filter the scenario you clicked and

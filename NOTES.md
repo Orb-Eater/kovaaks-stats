@@ -540,3 +540,109 @@ correctly reported 100% active play for a session that could not exist.
 Linked from the footer on dev builds only. It ships in releases (a few KB, and
 being able to check a frozen build's animations is the point) without being
 advertised there.
+
+## Notifications are an overlay, not markup
+
+`toast(key, html, opts)` in `core.js`, rendering into `#toastLayer`, which is
+**created on demand** rather than living in the markup - so index, simple and the
+effects lab all get it without three copies of one div.
+
+    key    one live card per key; firing again replaces rather than stacks
+    kind   warn | info | good | celebrate
+    ms     auto-dismiss, 0 = stays until dismissed
+    once   dismissing silences that key for the rest of the session
+
+Everything goes through it: break reminders, the idle nudge, the low-active
+popup, the restart-spam warning, the log-every-run suggestion, the live
+"just played" note and every celebration tier.
+
+They used to be `<div>`s in the page flow (`#liveNote`, `#breakAlert`,
+`#lowActiveAlert`, `#celebrate`). Those are gone from all three pages. The
+problem was not styling: a notification inside the flow moves the page under the
+cursor when it arrives and again when it leaves, and one that renders below the
+fold has not notified anyone.
+
+Two guards matter, because `renderSessionPanel()` re-runs on every 5-second
+poll: `resetWarnShownFor` and `lowActiveNudgeShownFor` hold a session start
+timestamp, and `logHintShown` is a plain once-per-load flag on top of the
+persisted `kva_loghint` dismissal.
+
+## Sessions: 30 minutes, and same-day sittings
+
+`SESSION_GAP_MIN` is **30**, down from 60. Half an hour with no completed run
+and the next run starts a new session.
+
+That alone would throw away the fact that three sittings happened on one day, so
+`buildSessions()` adds a second pass:
+
+    breakBeforeSec   gap from the previous session, only when same calendar day
+    dayIndex         which sitting of that day this is (1-based)
+    dayBreakSec      break time accumulated across the day so far
+
+The session panel shows the break before the current sitting and totals the day
+across all of them. Nothing is merged - the 30-minute split is right for
+measuring one sitting - but nothing is forgotten either.
+
+**The clock is live.** `SESSION_CLOCK` + a 1-second `tickSessionClock()` update
+the two elapsed-time cards from the PC clock, and rebuild the whole panel every
+60 ticks so the numbers are re-validated against the run history instead of
+drifting on their own arithmetic. It stops once the last run is older than
+`SESSION_GAP_MIN` - past that it is not this session any more.
+
+## The reference drawer
+
+`openSideTab(title, html, sourceBtn)`, `SIDETAB_DOCS`, and one **yellow warning
+symbol** per scenario card.
+
+The explanations used to be `title` attributes on 12px icons and a 9px `early`
+tag. That is where writing goes to not be read. `scenCaveats(v, ctx)` now returns
+a list of {title, body} for a given card - under-powered (with the run count and
+a day estimate), stand-in baseline in use, staleness, zero-score runs - and the
+card renders one symbol that opens them in a panel. `SCEN_CAVEATS` stashes the
+rendered HTML by scenario key, because the click happens long after the render
+and re-deriving the row there would mean recomputing it.
+
+The menu bar opens the same drawer with `SIDETAB_DOCS.icons`, `.calc` and
+`.calendar`. Those live in `core.js` rather than the markup so simple.html and
+the lab get them for free.
+
+`.sidetab[hidden]` needs an explicit `display:none`: the element is
+`display:flex`, which beats the `[hidden]` attribute and would leave the drawer
+permanently on screen.
+
+## Layout: 2560, and a right-hand column
+
+`.wrap` caps at **2560px**. Read it as "grows with the screen and stops at
+2560": a 1920 monitor fills, a 2560 monitor fills, wider stays put until the
+layout earns more - past 2560 the answer is more columns, not longer lines. 5120
+is still a later job. Prose keeps `max-width:104ch` regardless, because line
+length is a reading constraint and not a layout one.
+
+`.applayout` is one column until 1500px and two above it, with the session panel
+and the month calendar on the right. **Only the session panel is sticky, not the
+column**: a sticky column taller than the viewport can never be scrolled to its
+own bottom, which would put the oldest two months permanently out of reach.
+
+The "Month calendar" menu entry checks whether the calendar is already on screen
+before scrolling. `scrollIntoView` on an element inside a sticky container jumps
+to where it would have been rather than where it is.
+
+## Month calendar
+
+`renderCalendar()` draws this month and the four before it. **One measured
+number each: Typical, the trimmed mean**, against the previous month, through
+`computeTrends` + `overallOf` - the same path the headline cards use. Ceiling and
+Floor are deliberately absent: they are quantiles, they need more runs than a
+month usually holds, and showing them would put two confident-looking numbers
+next to one honest one.
+
+Cached on `dataVersion + pool.length + the exclusion settings + today's date`.
+Five months of trend computation on every 5-second poll is pure waste; the
+calendar only moves when the data or the exclusions move.
+
+The fun facts (`newScenariosIn`, `pbsIn`) are counted over **RUNS minus
+restarts**, not the filtered pool. A run you played as a warm-up is still a
+scenario you tried; the warm-up exclusion exists to keep biased scores out of a
+measurement, and these are not measurements. The drawer says so, and says
+plainly that a PB count rises fastest when you try new scenarios - the second
+run of a new scenario beats the first almost every time.

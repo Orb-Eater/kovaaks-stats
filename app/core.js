@@ -31,7 +31,12 @@ const TUNING = {
   EARLY_BASELINE_N: 5,
 
   // --- confounds (STATISTICS.md §3) -------------------------------------
-  SESSION_GAP_MIN: 60,   // minutes of inactivity that starts a new session
+  // Half an hour with no completed run and the next one starts a new session.
+  // Was 60. Closing KovaaK's, taking a walk or getting pulled away for half an
+  // hour is a different sitting, and calling it one four-hour session made
+  // "time in KovaaK's" and the active-play % describe something nobody did.
+  // Sessions on the same day are still tied together - see dayIndex below.
+  SESSION_GAP_MIN: 30,   // minutes of inactivity that starts a new session
   WARMUP_DROP: 2,        // runs dropped at the start of each session
   REFAM_GAP_DAYS: 14,    // returning to a scenario after this long...
   REFAM_DROP: 5,         // ...discards this many re-familiarisation runs
@@ -494,6 +499,17 @@ function buildSessions(){
       if(streak > s.maxResetStreak) s.maxResetStreak = streak;
     });
   });
+  // Sessions that share a calendar day belong together. Splitting at 30 minutes
+  // is right for measuring one sitting, but you did not start a new day just
+  // because you had lunch - so the gap between two sittings is kept as a break
+  // rather than thrown away, and the day totals span all of them.
+  out.forEach((s, i) => {
+    const prev = i > 0 ? out[i-1] : null;
+    const sameDay = prev && prev.end.toDateString() === s.start.toDateString();
+    s.breakBeforeSec = sameDay ? (s.start - prev.end)/1000 : null;
+    s.dayIndex = sameDay ? prev.dayIndex + 1 : 1;
+    s.dayBreakSec = sameDay ? prev.dayBreakSec + s.breakBeforeSec : 0;
+  });
   return out;
 }
 
@@ -522,17 +538,21 @@ function logEveryRunOn(){
 function logHintDismissed(){ return lsGet('kva_loghint') === '1'; }
 function dismissLogHint(){ lsSet('kva_loghint', '1'); }
 
-function logEveryRunHint(){
-  if(logEveryRunOn() || logHintDismissed()) return '';
-  return '<div class="loghint">' +
+let logHintShown = false;
+function showLogEveryRunHint(){
+  if(logHintShown) return;
+  logHintShown = true;
+  const el = toast('loghint',
     '<b>Want a restart counter?</b> Turn on <b>“Log every run”</b> in KovaaK\'s ' +
     '(Settings &rsaquo; Game). Restarts are invisible to this app until you do — ' +
     'the game only writes a file for runs you finish, so there is nothing to count.' +
     '<span class="dim"> The trade-off: it writes a CSV for every restart too, which ' +
     'clutters the stats folder and any other tool reading it. This app filters them ' +
     'out of every statistic automatically.</span>' +
-    '<button type="button" id="logHintNo" class="minibtn" style="float:none;margin-left:10px">Don\'t show again</button>' +
-    '</div>';
+    '<button type="button" id="logHintNo" class="minibtn" style="float:none;margin:8px 0 0">Don\'t show again</button>',
+    {kind:'info'});
+  const b = el && el.querySelector('#logHintNo');
+  if(b) b.addEventListener('click', () => { dismissLogHint(); dismissToast('loghint'); });
 }
 
 function resetDiagnosis(s){
@@ -1169,6 +1189,7 @@ function render(){
 
   const analysisClusters = hasCmData ? computeCmClusters(cmAnalysisPool) : [];
   const rows = computeTrends(pool, windowStart, windowEnd, effCmpMode, minRuns, analysisClusters, displayPool);
+  renderCalendar(pool, displayPool, analysisClusters, effCmpMode);
   const runsInWindow = pool.filter(r => r.date >= windowStart && r.date <= windowEnd).length;
 
   const allCells = rows.reduce((a,r) => a.concat(r.cells), []);
@@ -1459,20 +1480,21 @@ function render(){
     const row = (label, value, minN, est) =>
       '<tr><td>'+label+'</td><td>'+(value==null ? '<span style="color:var(--ink3)">n&lt;'+minN+'</span>' : fmt(value))+'</td>'+
       '<td>'+estSpan(est)+'</td></tr>';
-    // Icons instead of paragraphs (Batch 8): the concrete thing only, on hover.
+    // One yellow warning symbol per card, opening the drawer, instead of two
+    // 12px icons carrying their explanation in hover text nobody can read.
     const moreNeeded = Math.max(0, v.nRequired - v.nMin);
     const windowSpanDays = Math.max(1, (windowEnd - windowStart)/864e5);
     const ratePerDay = v.st.n / windowSpanDays;
     const etaDays = (!v.powered && ratePerDay > 0) ? Math.ceil(moreNeeded/ratePerDay) : null;
-    const warnIcon = !v.powered
-      ? '<span class="icon-warn" tabindex="0" title="Needs about '+moreNeeded+' more comparable run'+(moreNeeded===1?'':'s')+
-        ' per side to reliably detect a '+TUNING.TARGET_EFFECT+'% change'+
-        (etaDays!=null ? ' — roughly '+etaDays+' day'+(etaDays===1?'':'s')+' at your recent pace' : '')+'.">⚠️</span>'
+    const caveats = scenCaveats(v, {moreNeeded, etaDays, windowEnd});
+    // Stashed for the drawer: the click handler runs long after this render,
+    // and recomputing it there would mean re-deriving the whole row.
+    SCEN_CAVEATS[key] = {title: r.scen, html: caveatsHtml(caveats)};
+    const warnIcon = caveats.length
+      ? '<button type="button" class="warnsym scenWarn" data-scen="'+esc(key)+'" ' +
+        'title="'+caveats.length+' thing'+(caveats.length===1?'':'s')+' to know about this scenario — click to read">⚠</button>'
       : '';
-    const infoIcon = v.usedEarlyBaseline
-      ? '<span class="icon-info" tabindex="0" title="No separate earlier period to compare against yet, so some %s below use your first '+
-        TUNING.EARLY_BASELINE_N+' runs of this scenario as a rough starting point instead. Play it across a few separate days for a fully independent comparison.">ℹ️</span>'
-      : '';
+    const infoIcon = '';
     // Session badge: this scenario overall, or — if that would show as a flat
     // 0.0% — the cm/360 actually being played right now (Batch 8).
     const zeroish = x => x == null || Math.abs(x) < 0.05;
@@ -1529,6 +1551,60 @@ function render(){
       '<p class="note" style="margin-top:8px">Showing everything draws a chart per scenario — with this many it can make searching and scrolling stutter for a few seconds.</p>'
     : (listShowAll && matched.length > TUNING.LIST_PAGE_SIZE
         ? '<button type="button" id="listFewerBtn">Show fewer</button>' : '');
+}
+
+// Everything the card would otherwise have to say in 12px hover text. Returned
+// as a list so the icon can say how many there are before you open it.
+const SCEN_CAVEATS = {};
+function caveatsHtml(list){
+  if(!list.length) return '<p>Nothing to flag on this one.</p>';
+  return list.map(c => '<h3>' + c.t + '</h3><p>' + c.b + '</p>').join('') +
+    '<p style="margin-top:20px;color:var(--ink3)">Every symbol on a card is listed under ' +
+    '<b>Icon meanings</b> in the menu at the top of the page.</p>';
+}
+function scenCaveats(v, ctx){
+  const out = [];
+  if(!v.powered){
+    out.push({
+      t: 'Not enough runs to trust a small change',
+      b: 'This scenario needs about <b>' + ctx.moreNeeded + ' more comparable run' +
+         (ctx.moreNeeded === 1 ? '' : 's') + ' per side</b> before a ' + TUNING.TARGET_EFFECT +
+         '% change could be told apart from noise' +
+         (ctx.etaDays != null ? ' — roughly <b>' + ctx.etaDays + ' day' +
+            (ctx.etaDays === 1 ? '' : 's') + '</b> at your recent pace on it' : '') + '. ' +
+         'The requirement is not a fixed number: it scales with the square of how noisy ' +
+         'this scenario is for you (spread here is ' + fmt(v.st.cv) + '%), which is why it ' +
+         'differs from scenario to scenario.'
+    });
+  }
+  if(v.usedEarlyBaseline){
+    out.push({
+      t: 'Some percentages use a stand-in baseline',
+      b: 'There is no separate earlier period to compare against yet, so the rows tagged ' +
+         '<span class="earlytag">early</span> are measured against your <b>first ' +
+         TUNING.EARLY_BASELINE_N + ' runs ever</b> of this scenario instead. Treat those as a ' +
+         'rough starting point rather than a measured change — they are given no confidence ' +
+         'interval on purpose. Play it across a few separate days and they become real comparisons.'
+    });
+  }
+  const staleDays = Math.floor((ctx.windowEnd - v.rs[v.rs.length-1].date) / 864e5);
+  if(staleDays >= TUNING.STALE_SOFT_DAYS){
+    out.push({
+      t: 'Not played in ' + staleDays + ' days',
+      b: 'These percentages are still measured against an old baseline, so they say more about ' +
+         'where you left off than where you are now. Around <b>10 more runs</b> would give a ' +
+         'current read.'
+    });
+  }
+  if(v.zeroRuns){
+    out.push({
+      t: v.zeroRuns + ' run' + (v.zeroRuns === 1 ? '' : 's') + ' scored 0',
+      b: 'Usually a NeverMiss that ended on the first shot. They are drawn on the chart as hollow ' +
+         'marks along the bottom so you can see they happened, but they are kept out of every ' +
+         'average — a zero measures the moment you lost, not a level of performance.'
+    });
+  }
+  return out;
 }
 
 function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -1832,6 +1908,349 @@ function classifyAchievement(run){
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Month calendar.
+//
+// This month and the four before it. One number per month - Typical, the
+// trimmed mean - and not three: Ceiling (p90) and Floor (p10) need more runs
+// than a single month usually holds, so showing them here would be two
+// confident-looking figures beside one honest one.
+//
+// Each month is measured against the month before it, through exactly the same
+// machinery the rest of the page uses: per scenario, per sensitivity, combined
+// by how precise each comparison is. A month whose interval spans zero is drawn
+// grey, same as everywhere else.
+// ---------------------------------------------------------------------------
+const CAL_MONTHS = 5;
+// The date pickers already own a short MONTH_NAMES; the calendar wants them
+// written out.
+const MONTH_LONG = ['January','February','March','April','May','June','July',
+                    'August','September','October','November','December'];
+let calCache = {key:null, html:''};
+
+function monthStart(d, back){
+  return new Date(d.getFullYear(), d.getMonth() - (back || 0), 1, 0, 0, 0, 0);
+}
+
+// Scenarios you had never played before that month and did play during it.
+// Deliberately counted over ALL runs rather than the filtered pool: trying
+// something for the first time is a fact about your month, not a measurement,
+// and a warm-up exclusion should not be able to un-try it.
+function newScenariosIn(a, b){
+  const before = new Set(), during = new Set();
+  RUNS.forEach(r => {
+    // Restarts only. A run you played as a warm-up is still a scenario you
+    // tried - the warm-up exclusion exists to stop biased scores entering a
+    // measurement, and this is not a measurement.
+    if(r.reset) return;
+    const k = r.scen.trim().toLowerCase();
+    if(r.date < a) before.add(k);
+    else if(r.date < b) during.add(k);
+  });
+  let n = 0;
+  during.forEach(k => { if(!before.has(k)) n++; });
+  return n;
+}
+
+// A run that beat everything you had ever done on that scenario. First-ever
+// runs are not PBs - there was nothing to beat.
+function pbsIn(a, b){
+  const best = {};
+  let n = 0;
+  // Same reasoning: a personal best set during a warm-up run is still a score
+  // you got. Restarts and zeros cannot beat anything.
+  RUNS.forEach(r => {
+    if(r.reset || r.score <= 0) return;
+    const k = r.scen.trim().toLowerCase();
+    const prior = best[k];
+    if(prior !== undefined && r.score > prior && r.date >= a && r.date < b) n++;
+    if(prior === undefined || r.score > prior) best[k] = r.score;
+  });
+  return n;
+}
+
+function renderCalendar(pool, displayPool, clusters, cmpMode){
+  if(!has('#calendarWrap')) return;
+  if(!RUNS.length){ $('#calendarWrap').innerHTML = ''; return; }
+  // Recomputing five months of trends on every 5-second poll is pure waste -
+  // the calendar only moves when the data or the exclusions move.
+  const key = [dataVersion, pool.length, excludeWarmup, excludeRefam, cmMode,
+               cmPickValue, new Date().toDateString()].join('|');
+  if(calCache.key === key){ $('#calendarWrap').innerHTML = calCache.html; return; }
+
+  const now = RUNS[RUNS.length-1].date;
+  const runsByDay = {};
+  displayPool.forEach(r => { const k = r.date.toDateString(); runsByDay[k] = (runsByDay[k]||0)+1; });
+
+  const cards = [];
+  for(let back = 0; back < CAL_MONTHS; back++){
+    const a = monthStart(now, back), b = monthStart(now, back - 1);
+    const inMonth = pool.filter(r => r.date >= a && r.date < b);
+    const rows = inMonth.length
+      ? computeTrends(pool, a, new Date(b.getTime()-1), cmpMode, 1, clusters)
+      : [];
+    const cells = rows.reduce((acc, r) => acc.concat(r.cells), []);
+    const typical = cells.length ? overallOf(cells.map(c => c.typical)) : null;
+    const ns = typical && typical.se != null && Math.abs(typical.pct) <= TUNING.CI_Z * typical.se;
+    const pctCls = !typical || typical.pct == null ? '' : (ns ? 'ns' : (typical.pct >= 0 ? 'up' : 'dn'));
+    const pctTxt = !typical || typical.pct == null
+      ? '<span class="calnone" title="Not enough comparable runs in this month to measure a change against the month before">—</span>'
+      : '<span class="' + pctCls + '" title="Typical (trimmed mean) change against ' +
+        MONTH_LONG[(a.getMonth()+11)%12] + (typical.se != null
+          ? ', 95% CI ±' + (TUNING.CI_Z*typical.se).toFixed(1) + '%' + (ns ? ' — spans zero, so this is within noise' : '')
+          : '') + '">' + (typical.pct>=0?'+':'') + typical.pct.toFixed(1) + '%</span>';
+
+    // Day strip, Monday-first. A month you barely touched should look like one.
+    const days = new Date(b.getTime()-1).getDate();
+    const lead = (new Date(a.getFullYear(), a.getMonth(), 1).getDay() + 6) % 7;
+    let cellsHtml = '';
+    for(let i=0;i<lead;i++) cellsHtml += '<i class="calday pad"></i>';
+    let playedDays = 0;
+    for(let d=1; d<=days; d++){
+      const dt = new Date(a.getFullYear(), a.getMonth(), d);
+      const n = runsByDay[dt.toDateString()] || 0;
+      if(n) playedDays++;
+      const lvl = n === 0 ? 0 : (n < 10 ? 1 : (n < 25 ? 2 : (n < 50 ? 3 : 4)));
+      const future = dt > now;
+      cellsHtml += '<i class="calday l' + lvl + (future ? ' future' : '') + '" title="' +
+        d + ' ' + MONTH_LONG[a.getMonth()] + ' — ' + (n ? n + ' run' + (n===1?'':'s') : 'nothing played') + '"></i>';
+    }
+
+    const newScen = newScenariosIn(a, b);
+    const pbs = pbsIn(a, b);
+    const facts = [];
+    if(pbs) facts.push('<span class="calfact good">' + pbs + ' PB' + (pbs===1?'':'s') + '</span>');
+    if(newScen) facts.push('<span class="calfact new">' + newScen + ' new scenario' +
+      (newScen===1?'':'s') + ' tried!</span>');
+
+    cards.push('<div class="calmonth">' +
+      '<div class="calhead"><b>' + MONTH_LONG[a.getMonth()] + ' ' + a.getFullYear() + '</b>' + pctTxt + '</div>' +
+      '<div class="calbody"><div class="caldays">' + cellsHtml + '</div>' +
+      '<div class="calside">' +
+        '<div class="calmeta">' + inMonth.length.toLocaleString() + ' runs · ' +
+          playedDays + ' day' + (playedDays===1?'':'s') + '</div>' +
+        (facts.length ? '<div class="calfacts">' + facts.join('') + '</div>' : '') +
+      '</div></div>' +
+      '</div>');
+  }
+
+  calCache.key = key;
+  calCache.html = '<div class="scen calwrap"><h3>Months' +
+    '<button type="button" class="minibtn" id="calExplain">What is this?</button></h3>' +
+    '<p class="calnote">Typical (trimmed mean) change against the month before. Grey means the ' +
+    'interval spans zero — within noise.</p>' +
+    cards.join('') + '</div>';
+  $('#calendarWrap').innerHTML = calCache.html;
+}
+
+// ---------------------------------------------------------------------------
+// Reference drawer.
+//
+// The explanations used to be `title` text on 12px icons and a 9px "early"
+// tag - which is where writing goes to not be read. Anything worth explaining
+// now opens a panel wide enough to read it in, from one yellow warning symbol
+// per card and from the menu bar.
+// ---------------------------------------------------------------------------
+function openSideTab(title, html, sourceBtn){
+  const el = document.getElementById('sidetab');
+  const scrim = document.getElementById('sidetabScrim');
+  if(!el) return;
+  document.getElementById('sidetabTitle').textContent = title;
+  document.getElementById('sidetabBody').innerHTML = html;
+  el.hidden = false; scrim.hidden = false;
+  requestAnimationFrame(() => { el.classList.add('in'); scrim.classList.add('in'); });
+  document.querySelectorAll('.menubtn[aria-expanded]').forEach(b => b.setAttribute('aria-expanded','false'));
+  if(sourceBtn) sourceBtn.setAttribute('aria-expanded','true');
+  openSideTab._src = sourceBtn || null;
+  document.getElementById('sidetabClose').focus();
+}
+function closeSideTab(){
+  const el = document.getElementById('sidetab');
+  const scrim = document.getElementById('sidetabScrim');
+  if(!el || el.hidden) return;
+  el.classList.remove('in'); scrim.classList.remove('in');
+  setTimeout(() => { el.hidden = true; scrim.hidden = true; }, 240);
+  document.querySelectorAll('.menubtn[aria-expanded]').forEach(b => b.setAttribute('aria-expanded','false'));
+  if(openSideTab._src) openSideTab._src.focus();
+}
+
+// The reference pages. Kept here rather than in the markup so the same text is
+// available to simple.html and to the effects lab without being duplicated.
+const SIDETAB_DOCS = {
+  icons: {
+    title: 'Icon meanings',
+    html:
+      '<p>Everything on a scenario card that is not a number.</p>' +
+      '<div class="keyrow"><span class="keysym warnsym">⚠</span><span><b>Warning symbol</b> — ' +
+        'this card has something you should know before trusting its percentages. Click it and this ' +
+        'panel tells you exactly what, for that scenario: too few runs to detect a real change, a ' +
+        'stand-in baseline, or a long gap since you last played it.</span></div>' +
+      '<div class="keyrow"><span class="keysym"><span class="earlytag">early</span></span><span><b>early</b> — ' +
+        'that percentage is measured against your first few runs of the scenario rather than a genuinely ' +
+        'separate earlier period. A rough starting point, not a measured change, so it is given no ' +
+        'confidence interval.</span></div>' +
+      '<div class="keyrow"><span class="keysym">±</span><span><b>± a number</b> — the 95% confidence ' +
+        'interval. If it spans zero, the change is drawn grey: the data cannot tell that apart from ' +
+        'noise, whatever the headline number says.</span></div>' +
+      '<div class="keyrow"><span class="keysym">n&lt;</span><span><b>n&lt;10</b> and friends — withheld, not zero. ' +
+        'Each metric has its own minimum sample size and shows nothing below it rather than a number ' +
+        'it has not earned.</span></div>' +
+      '<div class="keyrow"><span class="keysym">●</span><span><b>Coloured dot and <code>52cm</code> chip</b> — ' +
+        'a sensitivity this scenario has been played at. Click one to narrow <i>this card</i> to that ' +
+        'cm; click it again to go back. Nothing else on the page moves.</span></div>' +
+      '<div class="keyrow"><span class="keysym">PB</span><span><b>PB / most played</b> — which sensitivity your ' +
+        'record was set at, and which one holds most of your runs.</span></div>' +
+      '<div class="keyrow"><span class="keysym">record</span><span><b>record</b> — your best single run. It is ' +
+        'shown but never turned into a percentage: the maximum of a sample rises as the sample grows, ' +
+        'so "PB up 3%" can mean nothing more than "played more".</span></div>' +
+      '<div class="keyrow"><span class="keysym">▲</span><span><b>avg up x% this session</b> — your average ' +
+        'on that scenario has risen since this session started.</span></div>' +
+      '<div class="keyrow"><span class="keysym">+n</span><span><b>scored 0</b> — runs that scored nothing, usually ' +
+        'a NeverMiss that ended on the first shot. Drawn on the chart as hollow marks along the bottom, ' +
+        'never counted in a percentage.</span></div>'
+  },
+  calendar: {
+    title: 'Months',
+    html:
+      '<p>This month and the four before it.</p>' +
+      '<h3>One number, not three</h3>' +
+      '<p>Only <b>Typical</b> — the 10% trimmed mean — is shown per month. Ceiling (p90) and ' +
+      'Floor (p10) are quantiles: they need more runs than a single month usually holds before ' +
+      'they mean anything, so putting them here would be two confident-looking numbers next to ' +
+      'one honest one.</p>' +
+      '<h3>What it is measured against</h3>' +
+      '<p>The month before it, through the same machinery as the rest of the page: compared within ' +
+      'each scenario and each sensitivity, then combined weighted by how precise each comparison ' +
+      'is. A month drawn <b>grey</b> has a confidence interval that spans zero — whatever the ' +
+      'number says, that month is within noise. A dash means there were not enough comparable runs ' +
+      'to say anything at all.</p>' +
+      '<h3>The squares</h3>' +
+      '<p>One per day, Monday first, shaded by how many runs you finished. A month you barely ' +
+      'touched should look like one.</p>' +
+      '<h3>New scenarios tried</h3>' +
+      '<p>Scenarios you had <b>never</b> played before that month and played at least once during ' +
+      'it. Counted across your whole history rather than the current filters — trying something ' +
+      'for the first time is a fact about your month, not a measurement.</p>' +
+      '<h3>PBs</h3>' +
+      '<p>Runs that beat everything you had ever scored on that scenario. Your first ever run of ' +
+      'something is not counted: there was nothing to beat.</p>' +
+      '<p>Read it as a fun fact, not a measurement. A PB count rises with how much you play, and ' +
+      'it rises fastest when you try new things — the second run of a brand new scenario beats the ' +
+      'first almost every time. A month where you tried a lot of new scenarios will show a lot of ' +
+      'PBs whether or not you got better at anything. The percentage above it is the one that ' +
+      'controls for that.</p>'
+  },
+  calc: {
+    title: 'Calculation and reasoning',
+    html:
+      '<p>The short version. <code>CALCULATIONS.md</code> and <code>CHART-SCALING.md</code> in the ' +
+      'app folder have the full working.</p>' +
+      '<h3>Why not personal bests</h3>' +
+      '<p>A PB is the maximum of <i>n</i> samples, and the expected maximum rises with <i>n</i> even ' +
+      'when nothing about you has changed. Play more, PB more, learn nothing. So the record is shown ' +
+      'and never turned into a percentage.</p>' +
+      '<h3>The three numbers</h3>' +
+      '<p><b>Ceiling</b> is the 90th percentile of your scores — a good day, not a fluke. ' +
+      '<b>Typical</b> is a 10% trimmed mean: the best and worst tenth are dropped so one disaster or ' +
+      'one miracle cannot move it. <b>Floor</b> is the 10th percentile — your bad days. The floor is ' +
+      'the one that matters most: a rising floor is skill you own, a rising ceiling can be luck.</p>' +
+      '<h3>Why a change can be "not significant"</h3>' +
+      '<p>Every percentage carries a 95% confidence interval. When that interval spans zero, the ' +
+      'number is drawn grey — your data genuinely cannot distinguish it from noise. Being told ' +
+      '"that is noise" is the point of this app.</p>' +
+      '<h3>How many runs it takes</h3>' +
+      '<p>Runs needed scales with the <i>square</i> of how noisy that scenario is for you: ' +
+      '<code>n = 15.7 × (spread / effect)²</code>. A scenario with 4% spread needs about 10 runs a side ' +
+      'to see a 5% change; one with 12% spread needs about 90. That is why one global "minimum runs" ' +
+      'cannot be right, and why the warning symbol quotes a number per scenario.</p>' +
+      '<h3>What is excluded</h3>' +
+      '<p><b>Warm-up runs</b> are measurably lower (about 8% here) and are dropped by default — if ' +
+      'your session lengths change between the two periods, that bias alone shows up as a fake skill ' +
+      'change. <b>Re-familiarisation runs</b> after a long break are dropped for the same reason. ' +
+      '<b>Restarts</b> never count: an abandoned attempt is not a run you played. <b>Zero-score runs</b> ' +
+      'stay visible on the chart but out of every average — a NeverMiss zero is the moment you lost, ' +
+      'not a level of performance.</p>' +
+      '<h3>Sensitivity is not a detail</h3>' +
+      '<p>Runs at different cm/360 are not the same distribution, so pooling them is treated as a bug. ' +
+      'Comparisons are made within a sensitivity and then combined, weighted by how precise each one ' +
+      'is.</p>' +
+      '<h3>Why the charts look calm</h3>' +
+      '<p>The y-axis is set from your <i>spread</i>, not from your best and worst run. Auto-fitting a ' +
+      'chart to its own min and max stretches whatever variation exists to fill the frame, so a ' +
+      'plateau and a breakthrough render identically. Here the vertical size of a change tracks its ' +
+      'size in units of your own noise, and the shaded band is ±1σ: inside the band is a good day, ' +
+      'clearing the band is progress.</p>' +
+      '<h3>Sessions</h3>' +
+      '<p>A new session starts after 30 minutes with no completed run — close the game, take a walk, ' +
+      'or just stop for half an hour and the next run begins a new one. Sessions on the same day are ' +
+      'counted together, with the breaks between them shown rather than hidden.</p>'
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Notifications live ABOVE the page, not inside it.
+//
+// They used to be divs in the document flow, which meant every one of them
+// pushed the page down as it appeared and yanked it back up when it went - and
+// a notice that lands below the fold while you are reading a chart is not a
+// notification, it is a surprise you find later. They are now a fixed overlay,
+// bottom-right, over everything.
+//
+// The layer is created on demand rather than living in the markup, so every
+// page gets it - index, simple, and the effects lab - without three copies of
+// the same div.
+// ---------------------------------------------------------------------------
+const TOAST_DISMISSED = new Set();
+function ensureToastLayer(){
+  let l = document.getElementById('toastLayer');
+  if(!l){
+    l = document.createElement('div');
+    l.id = 'toastLayer';
+    l.className = 'toastlayer';
+    l.setAttribute('role', 'status');
+    l.setAttribute('aria-live', 'polite');
+    document.body.appendChild(l);
+  }
+  return l;
+}
+
+// key   - one live toast per key; firing the same key again replaces it rather
+//         than stacking six copies of "take a break".
+// opts  - {kind:'warn'|'info'|'good'|'celebrate', ms:auto-dismiss (0 = sticky),
+//          once:true = dismissing it silences that key for the session}
+function toast(key, html, opts){
+  opts = opts || {};
+  if(opts.once && TOAST_DISMISSED.has(key)) return null;
+  const layer = ensureToastLayer();
+  const old = layer.querySelector('[data-key="' + CSS.escape(key) + '"]');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + (opts.kind || 'info');
+  el.dataset.key = key;
+  el.innerHTML = '<div class="toast-body">' + html + '</div>' +
+    '<button type="button" class="toast-x" aria-label="Dismiss">✕</button>';
+  el.querySelector('.toast-x').addEventListener('click', () => {
+    if(opts.once) TOAST_DISMISSED.add(key);
+    closeToast(el);
+  });
+  layer.appendChild(el);
+  // Two frames, so the browser has actually laid the element out before the
+  // transition starts - otherwise it snaps in with no animation at all.
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
+  if(opts.ms) setTimeout(() => closeToast(el), opts.ms);
+  return el;
+}
+function closeToast(el){
+  if(!el || !el.isConnected) return;
+  el.classList.remove('in');
+  el.classList.add('out');
+  setTimeout(() => el.remove(), 260);
+}
+function dismissToast(key){
+  const l = document.getElementById('toastLayer');
+  if(l) closeToast(l.querySelector('[data-key="' + CSS.escape(key) + '"]'));
+}
+
 function achievementText(a){
   if(a.kind === 'first') return {title:'First score!', sub:esc(a.scen) + ' — ' + fmt(a.score)};
   const where = a.scope === 'cm' ? (a.cm + 'cm ') : '';
@@ -1847,34 +2266,56 @@ function achievementText(a){
 }
 
 function celebrate(a){
-  if(!has('#celebrate')) return;
   const t = achievementText(a);
   const full = a.kind === 'pb';
-  $('#celebrate').innerHTML =
+  toast('celebrate',
     '<div class="celebrate' + (full ? ' big' : '') + '">' +
-      (full ? '<canvas class="confetti" id="confettiCanvas"></canvas>' : '') +
       '<div class="celebrate-in">' +
         '<div class="celebrate-t">' + (full ? '🎉 ' : (a.kind === 'first' ? '⭐ ' : '★ ')) + t.title + '</div>' +
         '<div class="celebrate-s">' + t.sub + '</div>' +
       '</div>' +
-    '</div>';
+    '</div>',
+    {kind:'celebrate', ms: TUNING.CELEBRATE_MS});
   logMsg('achievement', {kind:a.kind, scope:a.scope, scen:a.scen, score:a.score});
-  if(full) runConfetti(document.getElementById('confettiCanvas'));
-  clearTimeout(celebrate._t);
-  celebrate._t = setTimeout(() => { if(has('#celebrate')) $('#celebrate').innerHTML = ''; }, TUNING.CELEBRATE_MS);
+  // A PB is the one thing worth interrupting the whole page for.
+  if(full) runConfetti(fullScreenConfettiCanvas());
+}
+
+// The confetti used to be trapped inside the celebration card, which is a small
+// box in a corner. A personal best gets the whole window.
+function fullScreenConfettiCanvas(){
+  const old = document.getElementById('confettiCanvas');
+  if(old) old.remove();
+  const cv = document.createElement('canvas');
+  cv.id = 'confettiCanvas';
+  cv.className = 'confetti-full';
+  document.body.appendChild(cv);
+  setTimeout(() => { if(cv.isConnected) cv.remove(); }, TUNING.CONFETTI_MS + 400);
+  return cv;
 }
 
 // Small self-contained confetti - no library, works offline.
 function runConfetti(cv){
   if(!cv) return;
-  const rect = cv.parentElement.getBoundingClientRect();
+  // Full-screen canvases have no meaningful parent box to measure, and a
+  // devicePixelRatio-scaled backing store keeps the pieces crisp on a 4K panel.
+  const full = cv.classList.contains('confetti-full');
+  const rect = full ? {width: window.innerWidth, height: window.innerHeight}
+                    : cv.parentElement.getBoundingClientRect();
   cv.width = Math.max(320, rect.width); cv.height = Math.max(90, rect.height);
   const ctx = cv.getContext('2d');
   const colors = ['#5fb98a','#4a9ee0','#e8c34a','#e08a3c','#c07be0'];
   const bits = [];
-  for(let i=0;i<90;i++) bits.push({
-    x: Math.random()*cv.width, y: -Math.random()*cv.height,
-    vx: (Math.random()-0.5)*1.6, vy: 1.4 + Math.random()*2.4,
+  // 90 pieces filled a small card; spread over a whole window they read as a
+  // light drizzle. Scale with the area instead of picking a bigger constant.
+  const count = full ? Math.min(420, Math.round(cv.width * cv.height / 4200)) : 90;
+  // Full screen needs both a tighter start spread and more speed: pieces seeded
+  // a whole 1080px above the fold, falling at card speed, leave the window
+  // empty for the first two seconds of a ten-second celebration.
+  const drop = full ? 2.4 : 1;
+  for(let i=0;i<count;i++) bits.push({
+    x: Math.random()*cv.width, y: -Math.random()*cv.height*(full ? 0.55 : 1),
+    vx: (Math.random()-0.5)*1.6*drop, vy: (1.4 + Math.random()*2.4)*drop,
     w: 4+Math.random()*4, h: 5+Math.random()*6,
     rot: Math.random()*Math.PI, vr: (Math.random()-0.5)*0.28,
     c: colors[(Math.random()*colors.length)|0]
@@ -1887,12 +2328,12 @@ function runConfetti(cv){
     const fadeFrom = TUNING.CONFETTI_MS - 700;
     const fade = el > fadeFrom ? Math.max(0, 1-(el-fadeFrom)/700) : 1;
     bits.forEach(b => {
-      b.x += b.vx; b.y += b.vy; b.rot += b.vr; b.vy += 0.02;
+      b.x += b.vx; b.y += b.vy; b.rot += b.vr; b.vy += 0.02*drop;
       // Over 10 seconds every piece would have fallen out of the card, leaving
       // an empty box for most of the celebration. Recycle them off the top
       // instead - unless we are already fading out, so the end stays clean.
       if(b.y - b.h > cv.height && fade === 1){
-        b.y = -b.h; b.x = Math.random()*cv.width; b.vy = 1.4 + Math.random()*2.4;
+        b.y = -b.h; b.x = Math.random()*cv.width; b.vy = (1.4 + Math.random()*2.4)*drop;
       }
       ctx.save(); ctx.globalAlpha = fade; ctx.translate(b.x,b.y); ctx.rotate(b.rot);
       ctx.fillStyle = b.c; ctx.fillRect(-b.w/2,-b.h/2,b.w,b.h); ctx.restore();
@@ -1948,28 +2389,23 @@ function noteRunForBreak(n){
   renderBreakStatus();
 }
 function fireBreak(why){
-  if(!has('#breakAlert')) return;
-  $('#breakAlert').innerHTML = '<div class="breakalert">☕ <b>Take a break</b> — ' + esc(why) +
-    '. Step away for a few minutes; aim is a focus skill and tired reps reinforce bad habits.' +
-    '<button type="button" id="breakDismiss" class="minibtn" style="float:none;margin-left:10px">Dismiss</button></div>';
+  toast('break', '☕ <b>Take a break</b> — ' + esc(why) +
+    '. Step away for a few minutes; aim is a focus skill and tired reps reinforce bad habits.',
+    {kind:'warn'});
   logMsg('break reminder fired', why);
-  const d = document.getElementById('breakDismiss');
-  if(d) d.addEventListener('click', () => { $('#breakAlert').innerHTML = ''; });
 }
 // Fires at most once per session (Batch 8) — renderSessionPanel re-runs on
 // every poll tick, but re-showing this every 5s the whole time you're
 // alt-tabbed would be its own kind of annoying.
 let lowActiveNudgeShownFor = null;
+let resetWarnShownFor = null;
 function maybeFireLowActiveNudge(s){
-  if(!has('#lowActiveAlert') || lowActiveNudgeShownFor === s.start.getTime()) return;
+  if(lowActiveNudgeShownFor === s.start.getTime()) return;
   const why = lowActiveDiagnosis(s);
   if(!why) return;
   lowActiveNudgeShownFor = s.start.getTime();
-  $('#lowActiveAlert').innerHTML = '<div class="breakalert">⏸ <b>Mostly idle this session</b> — ' + esc(why) +
-    '<button type="button" id="lowActiveDismiss" class="minibtn" style="float:none;margin-left:10px">Dismiss</button></div>';
+  toast('lowactive', '⏸ <b>Mostly idle this session</b> — ' + esc(why), {kind:'warn'});
   logMsg('low active-play nudge fired', {activePct: Math.round(s.activePct), spanSec: Math.round(s.spanSec)});
-  const d = document.getElementById('lowActiveDismiss');
-  if(d) d.addEventListener('click', () => { $('#lowActiveAlert').innerHTML = ''; });
 }
 function renderBreakStatus(){
   if(!has('#breakStatus')) return;
@@ -1984,14 +2420,14 @@ function renderBreakStatus(){
 
 // No new run for a while mid-session: usually restart-spam rather than a break.
 function checkIdleNudge(){
-  if(!RUNS.length || !has('#liveNote')) return;
+  if(!RUNS.length) return;
   const last = RUNS[RUNS.length-1].date.getTime();
   const idleMin = (Date.now() - last)/60000;
   if(idleMin >= 8 && idleMin < 25 && last > lastIdleNudge){
     lastIdleNudge = last;
-    $('#liveNote').innerHTML = '<p class="livenote">No completed run for ' + Math.floor(idleMin) +
+    toast('idle', 'No completed run for ' + Math.floor(idleMin) +
       ' minutes. If you are restarting over and over, that is chasing an RNG PB rather than practising — ' +
-      'let a run finish and read the score instead.</p>';
+      'let a run finish and read the score instead.', {kind:'warn', ms:45000});
     logMsg('idle nudge shown', {idleMin: Math.round(idleMin)});
   }
 }
@@ -2005,6 +2441,16 @@ function renderSessionPanel(){
   maybeFireLowActiveNudge(s);
 
   const today = sessions.filter(x => x.end.toDateString() === now.toDateString());
+  const todayBreak = today.reduce((a,x) => a + (x.breakBeforeSec || 0), 0);
+  // Elapsed time comes from the PC clock while a session is still live. Reading
+  // it off the last run's timestamp freezes the number the moment you stop
+  // finishing runs, which is precisely when you want to watch it move.
+  const liveMin = (Date.now() - now.getTime())/60000;
+  const live = liveMin < TUNING.SESSION_GAP_MIN;
+  SESSION_CLOCK.start = live ? s.start.getTime() : null;
+  SESSION_CLOCK.playSec = s.playSec;
+  const spanNow = live ? Math.max(s.spanSec, (Date.now() - s.start.getTime())/1000) : s.spanSec;
+  const activeNow = spanNow > 0 ? Math.min(100, s.playSec/spanNow*100) : null;
   // Completed runs only, to match the Latest-session card. Restarts are
   // counted separately rather than inflating the day's total.
   const tRuns = today.reduce((a,x)=>a+x.completed,0);
@@ -2015,7 +2461,15 @@ function renderSessionPanel(){
     ? '<p class="note" style="margin-top:8px">Run durations found for ' +
       Math.round(s.durCoverage*100) + '% of this session\'s runs; times are a lower bound.</p>' : '';
   const rush = rushDiagnosis(s);
+  // Both of these are notifications, not readings, so they go over the page.
+  // Once each per session: renderSessionPanel re-runs on every 5-second poll,
+  // and re-showing the same warning forty times an hour is its own problem.
   const resetWarn = resetDiagnosis(s);
+  if(resetWarn && resetWarnShownFor !== s.start.getTime()){
+    resetWarnShownFor = s.start.getTime();
+    toast('resetspam', esc(resetWarn), {kind:'warn'});
+  }
+  if(!logEveryRunOn() && !logHintDismissed()) showLogEveryRunHint();
 
   // What the watcher last saw land. Treated as "now playing" while it is recent;
   // after that it is just the last thing you played, and says so.
@@ -2042,23 +2496,27 @@ function renderSessionPanel(){
       '<div class="cards" style="margin-bottom:0">' +
         card('Latest session', s.completed + ' runs' +
           (s.resets ? ' <span class="ci">+' + s.resets + ' restarts</span>' : '')) +
-        card('Time in KovaaK\'s', fmtDur(s.spanSec)) +
+        card('Time in KovaaK\'s', fmtDur(spanNow), ' data-live="span"') +
         card('Actually playing', fmtDur(s.playSec) +
-          (s.activePct != null ? ' <span class="ci">(' + s.activePct.toFixed(0) + '%)</span>' : '')) +
+          (activeNow != null ? ' <span class="ci">(' + activeNow.toFixed(0) + '%)</span>' : ''),
+          ' data-live="active"') +
+        (s.breakBeforeSec != null
+          ? card('Break before this', fmtDur(s.breakBeforeSec) +
+              ' <span class="ci">(sitting ' + s.dayIndex + ' today)</span>')
+          : '') +
         card('Median gap', s.medGap != null ? s.medGap.toFixed(1) + 's' : '—') +
         card('Scenarios', s.scens) +
         (logEveryRunOn() ? card('Restarts', s.resets +
           (s.maxResetStreak > 1 ? ' <span class="ci">(' + s.maxResetStreak + ' in a row)</span>' : '')) : '') +
-        card('Today', tRuns + ' runs · ' + fmtDur(tPlay) + ' played') +
+        card('Today', tRuns + ' runs · ' + fmtDur(tPlay) + ' played' +
+          (today.length > 1
+            ? ' <span class="ci">(' + today.length + ' sittings, ' + fmtDur(todayBreak) + ' between)</span>'
+            : '')) +
       '</div>' + cov +
-      (resetWarn ? '<p class="resetalert">' + esc(resetWarn) + '</p>' : '') +
-      logEveryRunHint() +
       (rush ? '<p class="stalewarn">' + esc(rush) + '</p>' : '')) +
     '</div>';
   const t = document.getElementById('sessionToggle');
   if(t) t.addEventListener('click', () => { sessionCollapsed = !sessionCollapsed; renderSessionPanel(); });
-  const lh = document.getElementById('logHintNo');
-  if(lh) lh.addEventListener('click', () => { dismissLogHint(); renderSessionPanel(); });
   const f = document.getElementById('followScen');
   if(f) f.addEventListener('change', () => {
     followScen = f.checked; saveFollowScen();
@@ -2066,13 +2524,37 @@ function renderSessionPanel(){
     renderSessionPanel();
   });
 
-  function card(k,v){ return '<div class="card"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>'; }
+  function card(k,v,attr){ return '<div class="card"'+(attr||'')+'><div class="k">'+k+'</div><div class="v">'+v+'</div></div>'; }
 }
+
+// ---------------------------------------------------------------------------
+// Live session clock. The two elapsed-time readouts are updated from the PC
+// clock every second, and the whole panel is rebuilt once a minute so the
+// numbers are re-validated against the actual run history rather than drifting
+// on their own arithmetic forever.
+// ---------------------------------------------------------------------------
+const SESSION_CLOCK = {start:null, playSec:0, ticks:0};
+function tickSessionClock(){
+  if(!has('#sessionPanel') || !RUNS.length) return;
+  const idleMin = (Date.now() - RUNS[RUNS.length-1].date.getTime())/60000;
+  // Past the gap it is not one session any more, so stop counting.
+  if(SESSION_CLOCK.start == null || idleMin >= TUNING.SESSION_GAP_MIN) return;
+  if(++SESSION_CLOCK.ticks % 60 === 0){ renderSessionPanel(); return; }
+  const span = (Date.now() - SESSION_CLOCK.start)/1000;
+  const spanEl = document.querySelector('#sessionPanel [data-live="span"] .v');
+  if(spanEl) spanEl.textContent = fmtDur(span);
+  const actEl = document.querySelector('#sessionPanel [data-live="active"] .v');
+  if(actEl && span > 0){
+    const pct = Math.min(100, SESSION_CLOCK.playSec/span*100);
+    actEl.innerHTML = fmtDur(SESSION_CLOCK.playSec) +
+      ' <span class="ci">(' + pct.toFixed(0) + '%)</span>';
+  }
+}
+setInterval(tickSessionClock, 1000);
 
 // Called after the watcher pulls in new runs: surface what just landed so you
 // can see the app reacting while you play, without hunting for it in the list.
 function showLiveNote(sinceMs){
-  if(!has('#liveNote')) return;
   const fresh = RUNS.filter(r => r.date.getTime() > sinceMs).sort((a,b) => b.date - a.date);
   // A later tick with nothing newer (e.g. a deleted file bumping the version)
   // must not wipe the note that a previous tick just put up.
@@ -2089,14 +2571,13 @@ function showLiveNote(sinceMs){
   fresh.forEach(noteSessionAvg);
   noteRunForBreak(fresh.length);
   renderSessionPanel();
-  if(!followScen){ $('#liveNote').innerHTML = ''; return; }
+  if(!followScen){ dismissToast('live'); return; }
   const n = fresh[0];
   const when = n.date.toTimeString().slice(0,5);
-  $('#liveNote').innerHTML = '<p class="livenote">Just played: <b>' + esc(n.scen) + '</b> — ' +
+  toast('live', 'Just played: <b>' + esc(n.scen) + '</b> — ' +
     fmt(n.score) + (n.cm360!=null ? ' at ' + Math.round(n.cm360) + 'cm' : '') + ' at ' + when +
-    (fresh.length > 1 ? ' &nbsp;·&nbsp; ' + fresh.length + ' new runs picked up' : '') + '</p>';
-  clearTimeout(showLiveNote._t);
-  showLiveNote._t = setTimeout(() => { if(has('#liveNote')) $('#liveNote').innerHTML = ''; }, 60000);
+    (fresh.length > 1 ? ' &nbsp;·&nbsp; ' + fresh.length + ' new runs picked up' : ''),
+    {kind:'good', ms:60000});
 }
 
 function renderLog(){
@@ -2474,6 +2955,43 @@ if(has('#cmPickSearch')){
   });
 }
 $('#cmOutlier').addEventListener('change', render);
+// ---- menu bar and drawer wiring -------------------------------------------
+if(has('#menubar')){
+  $('#menubar').addEventListener('click', e => {
+    const b = e.target.closest('.menubtn');
+    if(!b) return;
+    if(b.dataset.doc){
+      const d = SIDETAB_DOCS[b.dataset.doc];
+      if(d) openSideTab(d.title, d.html, b);
+      return;
+    }
+    if(b.dataset.goto){
+      const el = document.getElementById(b.dataset.goto);
+      if(!el) return;
+      // On a wide screen the calendar is already in the right-hand column, so
+      // scrolling would be a jump to nowhere; flag it instead. On a narrow one
+      // it is inline below the list, and this is how you reach it.
+      const r = el.getBoundingClientRect();
+      const onScreen = r.top < window.innerHeight * 0.9 && r.bottom > 60;
+      if(!onScreen) el.scrollIntoView({behavior:'smooth', block:'start'});
+      el.classList.remove('flash');
+      void el.offsetWidth;
+      el.classList.add('flash');
+    }
+  });
+}
+if(has('#calendarWrap')){
+  $('#calendarWrap').addEventListener('click', e => {
+    if(e.target.id === 'calExplain'){
+      const d = SIDETAB_DOCS.calendar;
+      openSideTab(d.title, d.html, null);
+    }
+  });
+}
+if(has('#sidetabClose')) $('#sidetabClose').addEventListener('click', closeSideTab);
+if(has('#sidetabScrim')) $('#sidetabScrim').addEventListener('click', closeSideTab);
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeSideTab(); });
+
 loadBreakPrefs();
 function syncBreakUI(){
   $('#brkEnable').checked = BRK.enabled;
@@ -2544,6 +3062,12 @@ $('#list').addEventListener('click', e => {
     const el = document.querySelector('.scen[data-scen="' + CSS.escape(key) + '"]');
     if(el) el.scrollIntoView({block:'nearest'});
   };
+  const warnBtn = e.target.closest('.scenWarn');
+  if(warnBtn){
+    const c = SCEN_CAVEATS[warnBtn.dataset.scen];
+    if(c) openSideTab(c.title, c.html, warnBtn);
+    return;
+  }
   const fullBtn = e.target.closest('.fullBtn');
   if(fullBtn){
     const key = fullBtn.dataset.scen;
@@ -2930,6 +3454,42 @@ function selfTest(){
   const pinnedOnly = SPRS.filter(r => r.cm360 === 45);
   t('chips come from the full list, not the filtered one',
     (spark(pinnedOnly, true, SPRS, 45).match(/class="cmchip/g)||[]).length, 2);
+
+  // ---- sessions -----------------------------------------------------------
+  // A new session after 30 minutes, and sessions on the same day tied together
+  // by the break between them rather than merged or forgotten.
+  const KEEP = RUNS;
+  const mk = (iso, scen, score) => ({scen, date:new Date(iso), score, cm360:50,
+                                     sensScale:'cm/360', dur:60, reset:false});
+  RUNS = [
+    mk('2026-03-02T10:00:00', 'A', 100),   // sitting 1
+    mk('2026-03-02T10:20:00', 'A', 110),   // +20 min - same sitting
+    mk('2026-03-02T13:00:00', 'A', 120),   // +2h40 - new sitting, same day
+    mk('2026-03-03T09:00:00', 'B', 130)    // next day - new sitting, no break
+  ];
+  const SS = buildSessions();
+  t('30-minute gap splits a session', SS.length, 3);
+  t('20 minutes does not', SS[0].runs.length, 2);
+  t('second sitting of the day is numbered', SS[1].dayIndex, 2);
+  t('the break between them is kept', SS[1].breakBeforeSec, 2*3600 + 40*60);
+  t('a new day is sitting 1 again', SS[2].dayIndex, 1);
+  t('and carries no break', SS[2].breakBeforeSec, null);
+  t('SESSION_GAP_MIN is 30', TUNING.SESSION_GAP_MIN, 30);
+
+  // ---- month fun facts ----------------------------------------------------
+  // 'A' existed before March, 'B' did not. Only 'B' is new; only the second
+  // run of each scenario can be a PB, and a first-ever run never is.
+  RUNS = [
+    mk('2026-02-10T10:00:00', 'A', 100),
+    mk('2026-03-04T10:00:00', 'A', 150),   // PB in March
+    mk('2026-03-05T10:00:00', 'A',  90),   // not a PB
+    mk('2026-03-06T10:00:00', 'B', 200),   // first ever - not a PB
+    mk('2026-03-07T10:00:00', 'B', 210)    // PB in March
+  ];
+  const MA = new Date(2026, 2, 1), MB = new Date(2026, 3, 1);
+  t('new scenarios tried counts only the never-played', newScenariosIn(MA, MB), 1);
+  t('PBs exclude first-ever runs', pbsIn(MA, MB), 2);
+  RUNS = KEEP;
 
   const fails = R.filter(r => !r.ok);
   const fmtv = v => (typeof v === 'number' ? (Math.round(v * 1e6) / 1e6) : String(v));

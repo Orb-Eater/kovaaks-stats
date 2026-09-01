@@ -473,3 +473,70 @@ with the roadmap:
 Keep it that way. A feature may call out to fetch *reference* data - playlists,
 benchmark thresholds, leaderboards - but nothing derived from the user's own runs
 goes with it. If that ever has to change, the wording changes first.
+
+## Two cm filters, and why they are different
+
+There are two things in the UI that filter by sensitivity, and they are not the
+same feature:
+
+    Specific cm (above the list)   global   filters every scenario on the page
+    a cm chip on a card            local    filters that one card
+
+The chips shipped wired to the *global* one. Clicking `60cm` under a chart to
+ask "how am I doing at 60 here?" re-filtered every other scenario as well, and
+nothing on screen said so. They are now a per-card toggle held in `scenCm`
+(key -> cm), and the global control is left alone.
+
+**A pinned card is recomputed, not patched.** `cardView()` re-runs
+`computeTrends()` over just that cm's runs. Patching the displayed numbers would
+leave the confidence intervals, the power check, the baseline and the chart's
+sigma describing a different population than the numbers above them - a card
+claiming a comparison it never made. `minRuns` is 1 for that recompute on
+purpose: you asked for this cm specifically, and each metric already withholds
+itself below its own minimum rather than guessing.
+
+**The chips are built from the unfiltered runs.** `spark(rsAll, byCm, legendRs,
+pinnedCm)` draws `rsAll` but hands `legendRs` to `cmDotLegend`. Build the chips
+from the filtered list and pinning becomes a one-way door: the other
+sensitivities vanish, and with them the only way back out.
+
+## Card sizes
+
+`.scen-expanded` is applied to every card in the run list now - it used to be
+behind an Expand button that was pressed every time anyway. The class is kept
+rather than folded into `.scen` because the session panel and the cm breakdown
+also use `.scen`, and those should not grow.
+
+`.scen-full` is the new one: a full-bleed breakout up to 1920px, inset from the
+viewport so it never collides with the scrollbar. The numbers move beside the
+chart via grid areas. The chart keeps its 2:1 aspect - CHART-SCALING.md is
+explicit that the aspect is doing work, so stretching it to fill the width would
+undo the thing the whole document argues for - and it is capped by viewport
+height as well, since 1920px at 2:1 is a 960px-tall chart.
+
+## The effects lab
+
+`app/lab.html` + `app/lab.js`. A dev workbench: fire every celebration, nudge,
+alert and live note on demand instead of waiting to hit a PB or hand-editing a
+CSV to provoke one.
+
+It **loads `core.js` and calls into it**. Nothing is reimplemented, and nothing
+should ever be: a copy of an animation drifts from the real one, and then you are
+tuning something the app does not do. What the lab supplies is *state* -
+synthetic `RUNS`, cleared once-per-session guards, `TUNING` values from the
+sliders. The real `celebrate()`, `runConfetti()`, `fireBreak()`,
+`maybeFireLowActiveNudge()`, `checkIdleNudge()`, `showLiveNote()`,
+`renderSessionPanel()` and `spark()` do the work.
+
+`core.js` skips its own boot when `window.KVA_LAB` is set, so the lab never
+fetches the config, never loads 20k runs and never starts the watcher poll.
+
+The synthetic history is seeded (`rng(20260901)`), so the chart looks identical
+on every reload and two screenshots of the same effect are comparable. The
+generated data has to obey the same physics as real data - the first version
+gave runs 58-second durations and 42-second gaps, and the session panel
+correctly reported 100% active play for a session that could not exist.
+
+Linked from the footer on dev builds only. It ships in releases (a few KB, and
+being able to check a frozen build's animations is the point) without being
+advertised there.

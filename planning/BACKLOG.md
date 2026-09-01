@@ -10,6 +10,12 @@ MINOR digit, a fix between batches bumps PATCH. So Batch 7 is v0.2.0, not
 v0.1.1 — not 0.0.10, 0.0.11. Nothing already released was renumbered.
 `python release.py` defaults to the next minor; `--patch` for a fix.
 
+**Unshipped batches no longer carry a version number.** They used to, and it went
+stale every time something unplanned shipped between them — Batch 9 was promised
+v0.4.0 while v0.4.0 and v0.5.0 were both taken by work that was not on this list.
+**The batch numbers are stable and mean the plan order**; the version is assigned
+when the batch actually ships. Batch 9 is still Batch 9.
+
 **How to answer me.** Anything I need a decision on ends with a bare **`=`** on
 its own. Type your answer after it and I will pick it up next session — no need
 to reply in chat. Anything without a trailing `=` is mine to get on with.
@@ -237,11 +243,9 @@ Your words: *"We need to remove all the text clutter everywhere."*
       a wider chart (CSS-only — the chart's viewBox already scales). The cm chips
       are clickable independent of expand — click one to set the app's Specific-cm
       filter to that value.
-      *Chip-click applies the existing global Specific-cm filter rather than a
-      card-scoped one — reuses the already-tested filtering path instead of a
-      parallel per-card stats system. [MEASUREMENT-SPEC.md §10 gap 13](../MEASUREMENT-SPEC.md)
-      /[CHART-SCALING.md §8](../CHART-SCALING.md)'s true per-card cm filtering is
-      still open if that turns out not to be enough.*
+      *It turned out not to be enough, and you reported it: applying the global
+      filter meant one click on one scenario re-filtered every other scenario on
+      the page. Card-scoped filtering shipped in **v0.5.0** — see below.*
 - [x] **Hide the 0.0% session badge.** Suppressed whenever the figure would round
       to 0.0% (`|Δ| < 0.05`); falls back to the avg-up % at the cm/360 you're
       currently playing (tracked the same way, per-cm) when *that* figure is
@@ -251,7 +255,39 @@ Your words: *"We need to remove all the text clutter everywhere."*
       session being at least 10 minutes long so a two-run session doesn't read as
       "idle" from one long gap.
 
-## Batch 9 — layout and calendar → v0.4.0
+### Not on the plan — Scenario testing → v0.4.0
+
+Requested mid-flight, shipped ahead of Batch 9. Full detail in `CHANGELOG.md`.
+
+- [x] Benchmarks tab renamed **Scenario testing**, carrying Viscose Benchmarks
+      S2 (Medium / Hard / Expert, 39 scenarios each). matty rank dropped.
+- [x] Dev stats folder moved to `L:\Claude\Kovaaks Folder\stats`.
+- [x] One-time "turn on Log every run" offer; restart counter hidden while the
+      setting is off rather than showing a permanent zero.
+
+### Not on the plan — the cm chip fix, card sizes, effects lab → v0.5.0
+
+- [x] **cm chips filter only the card you clicked** (your report: *"it changes
+      every scenario view. It should be a toggle and only change for that
+      scenario"*). A per-card toggle held in `scenCm`; the pinned card is
+      **recomputed** through `computeTrends()` on that cm's runs rather than
+      having its numbers patched, so the CIs, the power check, the baseline and
+      the chart's sigma all move with it. The chips themselves are built from
+      the *unfiltered* runs, or pinning would delete the way back out.
+- [x] **Expanded is the default** for every scenario card — the button was being
+      pressed every time.
+- [x] **Full width** in its place: one card breaks out to 1920px, numbers beside
+      the chart. The chart keeps its 2:1 aspect (CHART-SCALING.md) and is capped
+      by viewport height, so it cannot end up taller than the screen.
+- [x] **Effects lab** at `app/lab.html` — fire the confetti, every celebration
+      tier, the break reminder, the idle nudge, the low-active popup, the
+      restart-spam alert and the live "just played" note on demand, against
+      seeded synthetic runs. It loads `core.js` and calls the real functions;
+      nothing is reimplemented, because a copy drifts and then you are tuning
+      something the app does not do. Linked from the footer on dev builds only.
+- [x] Six new self-test checks pinning the chip fix. 42 total.
+
+## Batch 9 — layout and calendar  ← **next**
 
 
 - [ ] Widen the page: **1920px default, 2560px cap** (your answer). Current cap is
@@ -268,7 +304,7 @@ Your words: *"We need to remove all the text clutter everywhere."*
 - [ ] **Live "Time in KovaaK's".** Today it only updates when a run lands. Tick it
       from the PC clock and re-validate against the last run once a minute.
 
-## Batch 10 — score-by-cm analysis → v0.5.0
+## Batch 10 — score-by-cm analysis
 
 Rules live in `planning/scenario-analysis/categories.md` as plain text so you can
 edit them without touching code.
@@ -284,7 +320,7 @@ edit them without touching code.
 - [ ] Extremes (<25cm, >80cm) excluded by default, toggleable
 - [ ] "Work in progress" disclaimer pointing at the baseline page
 
-## Batch 11 — baseline page, benchmarks and imports → v0.6.0
+## Batch 11 — baseline page, benchmarks and imports
 
 Scenario list is a plain document in `planning/baseline/scenarios.md`.
 
@@ -313,7 +349,7 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
       network call — the README's privacy wording was updated to match, and it
       must stay true: run data still never leaves the machine.
 
-## Batch 12 — timeframe comparison tools → v0.7.0
+## Batch 12 — timeframe comparison tools
 
 - [ ] Compare an arbitrary timeframe against the baseline sitting behind it
 - [ ] Compare month X vs the previous month
@@ -322,7 +358,7 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
       [MEASUREMENT-SPEC.md §7](../MEASUREMENT-SPEC.md) — the 7-day view must stop
       using the word "improvement"
 
-## Batch 13 — personal calibration and ADHD mode → v0.8.0
+## Batch 13 — personal calibration and ADHD mode
 
 - [ ] **Warm-up calibration on first launch.** `WARMUP_DROP: 2` is a guess, and
       the spec says time constants for this task are unknown and must be estimated
@@ -341,10 +377,11 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
 Every one of these ends in a bare **`=`**. Write your answer after it; I read them
 at the start of the next session. Answered ones move to *Answered* at the bottom.
 
-- **[?] Push v0.4.0?** It is committed and tagged locally but **not pushed** — the
-  standing instruction is to ask first. `git push origin master --follow-tags`,
-  and `python publish.py 0.4.0 --beta --yes` if you want it downloadable as the
-  beta channel alongside base v0.3.1.
+- **[?] Push v0.4.0 and v0.5.0?** Both are committed and tagged locally and
+  **neither is pushed** — the standing instruction is to ask first.
+  `git push origin master --follow-tags`, and `python publish.py 0.5.0 --beta
+  --yes` if you want the newest one downloadable as the beta channel alongside
+  base v0.3.1.
   =
 
 - **[?] What should "Scenario testing" become?** You said you want to overhaul it
@@ -390,7 +427,11 @@ at the start of the next session. Answered ones move to *Answered* at the bottom
 - **GitHub repo** → created private as `Orb-Eater/kovaaks-stats` by a separate
   session. Push work is on hold above.
 - **X.com handle** → `https://x.com/OrbEater_`, X logo, clickable. *v0.0.9.*
-- **Site width** → 1920 default, 2560 cap now, 5120 eventually. *Batch 9.*
+- **Site width** → 1920 default, 2560 cap now, 5120 eventually. *Batch 9 — the
+  next one.* The **session bar moving to the right side** is in the same batch:
+  it only makes sense once the page is wide enough to have a right side.
+  Batch numbers no longer carry a version (see the note at the top), so Batch 9
+  is still Batch 9 even though v0.4.0 and v0.5.0 went to unplanned work.
 - **Versioning** → batch = MINOR bump. *v0.1.0.* 0.1.0 -> 0.2.0, **not** 0.0.10.
 - **Confetti** → PB after 5+ prior runs, 10s, blinking. *v0.0.9.*
 - **Run resets** → detectable without score; excluded from the graph, counted in

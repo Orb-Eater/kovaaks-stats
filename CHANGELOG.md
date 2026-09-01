@@ -5,6 +5,71 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.5.0 - 2026-09-01
+
+**TL;DR - a cm chip now filters the card you clicked instead of the whole page,
+scenario cards start expanded, they can be pushed out to 1920px, and there is a
+workbench for the animations.**
+
+### The cm chips were a page-wide filter
+
+- **Clicking a cm chip on a scenario now filters that scenario only.** It used to
+  set the app-wide "Specific cm" filter, so asking "how do I do at 60cm on this
+  one?" silently re-filtered every other scenario on the page as well - one
+  click and the whole view had moved.
+- **It is a toggle.** Click the pinned chip again (or the "60cm only" marker in
+  the card header) and the card goes back to every cm. The pressed chip is
+  visibly pressed, which it never was before.
+- **Every cm stays listed while a card is pinned.** Filtering to 60cm used to be
+  a one-way door if the chips had been rebuilt from the filtered runs - the way
+  out would have disappeared along with the other sensitivities.
+- The pinned card is **recomputed, not patched**: the same code path runs again
+  on just that cm's runs, so the percentages, their confidence intervals, the
+  power check, the chart's sigma and the baseline all move together. Patching
+  the visible numbers and leaving the rest would have produced a card quietly
+  claiming a comparison it never made.
+- Pin a cm you have not played inside the window and the card says so rather
+  than silently showing everything.
+- The app-wide Specific-cm control above the list is untouched. It is still the
+  global filter, deliberately - that is now the only thing that is.
+
+### Scenario cards
+
+- **Expanded is the default.** The Expand button was being pressed every time, so
+  there is no longer a button for it.
+- **Full width** in its place: one card breaks out of the page column to 1920px.
+  The rest of the page does not move - it is a closer look at one scenario, not
+  a layout mode.
+- In full width the numbers sit beside the chart rather than under it, and the
+  **chart keeps its 2:1 aspect** (CHART-SCALING.md: a slope is only readable at
+  a sane aspect, so stretching it to fill 1920px would be a lie about the size
+  of the change). It is capped by viewport height too, so a 2:1 chart on a wide
+  monitor cannot end up taller than the screen it is being read on.
+- Below ~1300px of viewport there is nothing to break out into, so full width
+  stacks instead.
+
+### Effects lab (dev only)
+
+- **`app/lab.html`** - a workbench for the animations and notifications. Fire the
+  PB confetti, the quieter celebration tiers, the break reminder, the idle
+  nudge, the "mostly idle session" popup, the restart-spam alert and the live
+  "just played" note on demand, against synthetic runs.
+- **It calls the real functions.** It loads `core.js` and drives it; nothing is
+  reimplemented. A copy would drift, and tuning a copy means tuning something
+  the app does not do.
+- Confetti and celebration durations are adjustable live, so they can be tuned
+  by watching rather than by editing, reloading and waiting for a PB.
+- The synthetic history is seeded, so two screenshots of the same effect are
+  comparable.
+- Linked from the footer **on dev builds only**. It ships with releases (it is a
+  few KB, and checking a frozen build's animations is exactly the point) but
+  frozen builds do not advertise it.
+
+### Checks
+
+- Six new self-test checks covering the chip fix specifically: what the pressed
+  state is driven by, and that the full cm list survives being pinned. 42 total.
+
 ## v0.4.0 - 2026-09-01
 
 **TL;DR - Benchmarks is now Scenario testing, carrying Viscose Benchmarks S2

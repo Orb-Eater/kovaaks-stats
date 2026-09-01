@@ -72,7 +72,15 @@ Requires **Python 3.8+**. No pip install, no dependencies — standard library o
 - **cm/360 analysis** — filter by exact sensitivity, by range, or by favourites;
   best and worst performing sensitivity bands; per-cm PBs. Runs at different
   sensitivities are not the same distribution, so pooling them is treated as a
-  bug, not a view option.
+  bug, not a view option. Clicking a cm chip under a chart narrows **that
+  scenario** to that sensitivity and nothing else on the page — and recomputes
+  it properly, confidence intervals and all, rather than filtering the picture
+  and leaving the numbers behind.
+- **A closer look at one scenario** — every card is expanded by default, and
+  **Full width** pushes a single card out to 1920px with the numbers beside the
+  chart. The chart keeps its 2:1 aspect there: stretching it to fill the width
+  would make every change look bigger than it is, which is the whole thing this
+  app exists to avoid.
 - **Scenario testing** — Viscose Benchmarks S2 (Medium, Hard, Expert), searchable,
   with your rank against every threshold.
 - **Session tracking** — time in KovaaK's vs time actually playing, gaps between

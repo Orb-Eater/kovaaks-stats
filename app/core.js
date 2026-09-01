@@ -120,8 +120,16 @@ let cmTablesCollapsed = true;
 let dataVersion = null;
 let listLimit = 5;
 let listShowAll = false;
-// Scenario cards expanded for a closer look (Batch 8) — keyed like sessionAvg.
-const expandedScenarios = new Set();
+// Scenario cards are expanded by default now, so the only card size worth
+// tracking is which ones have been pushed out to full width. Keyed like
+// sessionAvg (trimmed, lowercased scenario name).
+const fullWidthScenarios = new Set();
+// A cm chip pins THAT ONE card to that sensitivity. It used to set the global
+// Specific-cm filter, which silently re-filtered every other scenario on the
+// page - one click, and the whole view had moved. It is a per-card toggle:
+// click the pinned chip again to clear it. The Specific-cm control above the
+// list is still the global thing, deliberately.
+const scenCm = new Map();
 // ---- per-build settings storage ---------------------------------------
 // localStorage is keyed by origin (host + port), not by folder. Frozen releases
 // used to be numbered from 8801 upwards in every copy of the project, so two
@@ -1425,28 +1433,49 @@ function render(){
       ? (matched.length.toLocaleString() + ' of ' + rows.length.toLocaleString() + ' match "' + runQ + '" · showing ' + shownRows.length)
       : (rows.length.toLocaleString() + ' scenarios · showing ' + shownRows.length);
   }
+  // Pinning a card to one cm re-runs the same machinery on just that cm's runs
+  // rather than patching the numbers after the fact. The percentages, their
+  // CIs, the power check and the baseline all have to move together or the card
+  // starts claiming a comparison it never made. minRuns is 1 here on purpose:
+  // you asked for this cm specifically, and each metric already withholds
+  // itself below its own minimum instead of guessing.
+  const cardView = r => {
+    const cm = scenCm.get(r.scen.trim().toLowerCase());
+    if(cm == null) return r;
+    const at = x => x.scen === r.scen && x.cm360 != null && Math.round(x.cm360) === cm;
+    const sub = computeTrends(pool.filter(at), windowStart, windowEnd, effCmpMode, 1,
+                              analysisClusters, displayPool.filter(at));
+    return sub.length ? sub[0] : r;
+  };
+
   $('#list').innerHTML = shownRows.map(r => {
+    const key = r.scen.trim().toLowerCase();
+    const pinCm = scenCm.get(key);
+    // v is what the card shows: the whole scenario, or just one cm of it.
+    const v = cardView(r);
+    // Pinned to a cm you have not played inside this window - say so rather
+    // than quietly showing everything and letting the chip look broken.
+    const pinMissed = pinCm != null && v === r;
     const row = (label, value, minN, est) =>
       '<tr><td>'+label+'</td><td>'+(value==null ? '<span style="color:var(--ink3)">n&lt;'+minN+'</span>' : fmt(value))+'</td>'+
       '<td>'+estSpan(est)+'</td></tr>';
     // Icons instead of paragraphs (Batch 8): the concrete thing only, on hover.
-    const moreNeeded = Math.max(0, r.nRequired - r.nMin);
+    const moreNeeded = Math.max(0, v.nRequired - v.nMin);
     const windowSpanDays = Math.max(1, (windowEnd - windowStart)/864e5);
-    const ratePerDay = r.st.n / windowSpanDays;
-    const etaDays = (!r.powered && ratePerDay > 0) ? Math.ceil(moreNeeded/ratePerDay) : null;
-    const warnIcon = !r.powered
+    const ratePerDay = v.st.n / windowSpanDays;
+    const etaDays = (!v.powered && ratePerDay > 0) ? Math.ceil(moreNeeded/ratePerDay) : null;
+    const warnIcon = !v.powered
       ? '<span class="icon-warn" tabindex="0" title="Needs about '+moreNeeded+' more comparable run'+(moreNeeded===1?'':'s')+
         ' per side to reliably detect a '+TUNING.TARGET_EFFECT+'% change'+
         (etaDays!=null ? ' — roughly '+etaDays+' day'+(etaDays===1?'':'s')+' at your recent pace' : '')+'.">⚠️</span>'
       : '';
-    const infoIcon = r.usedEarlyBaseline
+    const infoIcon = v.usedEarlyBaseline
       ? '<span class="icon-info" tabindex="0" title="No separate earlier period to compare against yet, so some %s below use your first '+
         TUNING.EARLY_BASELINE_N+' runs of this scenario as a rough starting point instead. Play it across a few separate days for a fully independent comparison.">ℹ️</span>'
       : '';
-    const key = r.scen.trim().toLowerCase();
     // Session badge: this scenario overall, or — if that would show as a flat
     // 0.0% — the cm/360 actually being played right now (Batch 8).
-    const zeroish = v => v == null || Math.abs(v) < 0.05;
+    const zeroish = x => x == null || Math.abs(x) < 0.05;
     const sess = sessionAvg[key];
     const curCm = lastCmFor(r.scen);
     const sessCm = curCm != null ? sessionAvgByCm[sessionKeyOf(r.scen, curCm)] : null;
@@ -1458,26 +1487,38 @@ function render(){
       sessBadge = '<span class="sessup" title="Your average at '+curCm+'cm/360 has risen since you started this session">▲ avg up '+
         sessCm.deltaPct.toFixed(1)+'% this session at '+curCm+'cm</span>';
     }
-    const expanded = expandedScenarios.has(key);
-    return '<div class="scen'+(expanded?' scen-expanded':'')+'"><h3>'+
+    // The pin marker doubles as the way out of it: the chip is one click, but
+    // once a card is filtered the obvious place to look is the line saying so.
+    const pinNote = pinCm == null ? ''
+      : (pinMissed
+          ? ' · <span class="cmpin miss" title="Nothing at '+pinCm+'cm inside this window, so the card is showing every cm. Click to clear.">no '+pinCm+'cm runs here ✕</span>'
+          : ' · <span class="cmpin" title="This card only — everything else on the page is untouched. Click to show every cm again.">'+pinCm+'cm only ✕</span>');
+    const full = fullWidthScenarios.has(key);
+    return '<div class="scen scen-expanded'+(full?' scen-full':'')+'" data-scen="'+esc(key)+'"><h3>'+
       esc(r.scen)+' '+infoIcon+warnIcon+' '+sessBadge+
-      '<button type="button" class="minibtn expandBtn" data-scen="'+esc(key)+'">'+(expanded?'Collapse':'Expand')+'</button></h3>'+
-      '<p class="meta">'+r.st.n+' runs'+(r.zeroRuns ? ' <span class="zerotag" title="Runs that scored 0 — a NeverMiss that ended on the first shot, for example. Drawn on the chart, never counted in a percentage.">+'+r.zeroRuns+' scored 0</span>' : '')+' · spread '+fmt(r.st.cv)+'% · last played '+r.rs[r.rs.length-1].date.toISOString().slice(0,10)+
-      (r.cells.length>1 ? ' · '+r.cells.length+' cm cells' : '')+'</p>'+
+      '<button type="button" class="minibtn fullBtn" data-scen="'+esc(key)+'">'+(full?'⤡ Exit full width':'⤢ Full width')+'</button></h3>'+
+      '<p class="meta">'+v.st.n+' runs'+(v.zeroRuns ? ' <span class="zerotag" title="Runs that scored 0 — a NeverMiss that ended on the first shot, for example. Drawn on the chart, never counted in a percentage.">+'+v.zeroRuns+' scored 0</span>' : '')+' · spread '+fmt(v.st.cv)+'% · last played '+v.rs[v.rs.length-1].date.toISOString().slice(0,10)+
+      (v.cells.length>1 ? ' · '+v.cells.length+' cm cells' : '')+pinNote+'</p>'+
+      '<div class="scenbody"><div class="scennum">'+
       '<table><tr><th>metric</th><th>value</th><th>vs baseline (95% CI)</th></tr>'+
-      '<tr><td>PB <span class="recordtag">record</span></td><td>'+fmt(r.st.record)+pbCmTag(r.rs)+'</td><td><span style="color:var(--ink3)">not a measurement</span></td></tr>'+
-      row('Ceiling (p90)', r.st.ceiling, TUNING.CEILING_MIN_N, r.ceiling)+
-      row('Typical (trimmed)', r.st.typical, TUNING.TYPICAL_MIN_N, r.typical)+
-      row('Floor (p10)', r.st.floor, TUNING.FLOOR_MIN_N, r.floor)+
+      '<tr><td>PB <span class="recordtag">record</span></td><td>'+fmt(v.st.record)+pbCmTag(v.rs)+'</td><td><span style="color:var(--ink3)">not a measurement</span></td></tr>'+
+      row('Ceiling (p90)', v.st.ceiling, TUNING.CEILING_MIN_N, v.ceiling)+
+      row('Typical (trimmed)', v.st.typical, TUNING.TYPICAL_MIN_N, v.typical)+
+      row('Floor (p10)', v.st.floor, TUNING.FLOOR_MIN_N, v.floor)+
       '</table>'+
-      staleNote(r, windowEnd) +
-      spark(r.rsAll || r.rs, colorByCm)+
+      staleNote(v, windowEnd) +
+      '</div><div class="scenchart">'+
+      // The chart is drawn from the pinned runs, but the chips are built from
+      // every run the scenario has - filter to 45cm and the other chips have to
+      // still be there, or there is no way back out except undoing the filter.
+      spark(v.rsAll || v.rs, colorByCm, r.rsAll || r.rs, pinCm)+
+      '</div>'+
       '<div class="legend"><span><i style="background:var(--best)"></i>PB (step — it is a ratchet, not a slope)</span>'+
       '<span><i style="background:var(--med)"></i>rolling median</span>'+
       '<span><i style="background:var(--low)"></i>rolling bottom 10%</span>'+
       '<span><i style="background:var(--ink3)"></i>individual runs</span>'+
       '<span><i class="bandkey"></i>±1σ noise floor</span></div>'+
-      '</div>';
+      '</div></div>';
   }).join('') || '<p style="color:var(--ink2)">' +
     (runQ ? 'No scenarios match that search.' : 'No scenarios meet the minimum run count in this window.') + '</p>';
 
@@ -2216,9 +2257,11 @@ function pbCmTag(rs){
     '" title="Your record on this scenario was set at '+p.pbCm+'cm/360">'+p.pbCm+'cm</span>';
 }
 
-// Chips are clickable (Batch 8): picking one sets the app's Specific-cm filter
-// to that value, so "look at this scenario at just this cm" is one click.
-function cmDotLegend(rs){
+// Chips are a per-card toggle: click one and only THIS scenario narrows to that
+// sensitivity, click it again and the card goes back to all of them. It used to
+// drive the app-wide Specific-cm filter, so asking "how do I do at 45cm here?"
+// silently re-filtered every other scenario on the page as well.
+function cmDotLegend(rs, pinnedCm){
   const p = cmProfile(rs);
   if(!p) return '';
   const multi = p.buckets.length > 1;
@@ -2226,11 +2269,15 @@ function cmDotLegend(rs){
     const n = p.counts.get(b);
     const isMost = multi && p.most && b === p.most.cm;
     const isPb   = multi && b === p.pbCm;
+    const on     = pinnedCm === b;
     const tags = (isMost ? '<b class="cmtag most">most played</b>' : '') +
                  (isPb   ? '<b class="cmtag pb">PB</b>' : '');
-    return '<span class="cmchip" data-cm="'+b+'" tabindex="0" title="'+n+' run'+(n===1?'':'s')+' at '+b+'cm'+
+    return '<span class="cmchip'+(on?' on':'')+'" data-cm="'+b+'" tabindex="0" role="button" aria-pressed="'+
+      (on?'true':'false')+'" title="'+n+' run'+(n===1?'':'s')+' at '+b+'cm'+
       (isMost ? ' — more than at any other sensitivity' : '')+
-      (isPb ? ' — your record on this scenario was set here' : '')+' — click to filter to '+b+'cm">'+
+      (isPb ? ' — your record on this scenario was set here' : '')+
+      (on ? ' — this card is showing only '+b+'cm. Click to show every cm again.'
+          : ' — click to show only '+b+'cm on this card. Nothing else on the page moves.')+'">'+
       '<i class="cmswatch" style="background:'+cmColor(b)+'"></i>'+b+'cm'+tags+'</span>';
   }).join('')+'</div>';
 }
@@ -2261,7 +2308,9 @@ function chartScale(scores){
   return { lo, hi, mu, sd: sd0, span, n: tail.length };
 }
 
-function spark(rsAll, byCm){
+// legendRs is the scenario's full run list even when rsAll has been filtered to
+// one cm, so the chips never disappear out from under the filter that made them.
+function spark(rsAll, byCm, legendRs, pinnedCm){
   // 2:1 plot area. Slope is judged most accurately when the average segment
   // sits near 45 degrees; wide-and-short charts flatten trends (Cleveland).
   const H = 340, W = Math.round(H * TUNING.CHART_ASPECT), P = 10, PL = 46;
@@ -2338,7 +2387,7 @@ function spark(rsAll, byCm){
     '<path d="'+low+'" fill="none" stroke="var(--low)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>'+
     '<path d="'+med+'" fill="none" stroke="var(--med)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>'+
     scaleNote(s, zeros.length) +
-    (byCm ? cmDotLegend(rs) : '');
+    (byCm ? cmDotLegend(legendRs || rsAll, pinnedCm) : '');
 }
 
 // Says out loud what the axis is doing, so nobody has to guess whether a big
@@ -2488,19 +2537,34 @@ $('#listMore').addEventListener('click', e => {
 // Delegated onto the (never-replaced) wrapper, since #list's own innerHTML is
 // rebuilt on every render() — a listener on the cards themselves would vanish.
 $('#list').addEventListener('click', e => {
-  const expBtn = e.target.closest('.expandBtn');
-  if(expBtn){
-    const key = expBtn.dataset.scen;
-    if(expandedScenarios.has(key)) expandedScenarios.delete(key); else expandedScenarios.add(key);
+  // render() rebuilds the whole list, so a card that just grew (or shrank) can
+  // end up off screen. Put it back under the cursor afterwards.
+  const keepInView = key => {
     render();
+    const el = document.querySelector('.scen[data-scen="' + CSS.escape(key) + '"]');
+    if(el) el.scrollIntoView({block:'nearest'});
+  };
+  const fullBtn = e.target.closest('.fullBtn');
+  if(fullBtn){
+    const key = fullBtn.dataset.scen;
+    if(fullWidthScenarios.has(key)) fullWidthScenarios.delete(key); else fullWidthScenarios.add(key);
+    keepInView(key);
+    return;
+  }
+  const card = e.target.closest('.scen[data-scen]');
+  const key = card && card.dataset.scen;
+  if(!key) return;
+  if(e.target.closest('.cmpin')){
+    scenCm.delete(key);
+    keepInView(key);
     return;
   }
   const chip = e.target.closest('.cmchip');
   if(chip){
-    cmPickValue = +chip.dataset.cm;
-    setCmTab('pick');
-    rebuildCmPickOptions();
-    render();
+    const cm = +chip.dataset.cm;
+    // Toggle, and scoped to this one card.
+    if(scenCm.get(key) === cm) scenCm.delete(key); else scenCm.set(key, cm);
+    keepInView(key);
   }
 });
 
@@ -2584,6 +2648,13 @@ function renderBuildStamp(){
     ? 'build ' + (label === 'dev' ? 'dev (working copy)' : label) +
       (BUILD_HASH ? ' · ' + BUILD_HASH : '') + (port ? ' · port ' + port : '')
     : 'build: local file mode (no server)';
+  // The effects lab is a workbench for animations and notifications. It ships
+  // with every build (it is tiny, and being able to check a frozen release's
+  // animations is the point) but only a dev build links to it.
+  if(label === 'dev' && !document.getElementById('labLink')){
+    $('#buildStamp').insertAdjacentHTML('beforeend',
+      ' · <a id="labLink" href="lab.html">effects lab</a>');
+  }
 }
 
 function showFolderSetup(msg){
@@ -2674,6 +2745,10 @@ function wireFolderSetup(){
 }
 
 (async function boot(){
+  // lab.html loads this file for the real celebrate/nudge/chart code and then
+  // drives it with synthetic runs. Booting would fetch the config, pull 20k runs
+  // and start the 5-second watcher poll, none of which the workbench wants.
+  if(typeof window !== 'undefined' && window.KVA_LAB) return;
   try{
     const r = await fetch('api/benchmarks', {cache:'no-store'});
     if(r.ok){ BENCH_DATA = await r.json(); SERVER_MODE = true; }
@@ -2835,6 +2910,26 @@ function selfTest(){
   t('chartScale flat lo', flat.lo, 100 - TUNING.CHART_MIN_SPAN_PCT * 100);
   const spike = chartScale(OUT);
   t('chartScale expands rather than clipping', (spike.hi >= 100), true);
+
+  // cm chips are a PER-CARD toggle. They shipped as a global filter, so one
+  // click on one scenario silently re-filtered every other scenario on the
+  // page. These checks pin the two halves of the fix: the pressed state is
+  // driven by what that card is pinned to, and every cm the scenario has ever
+  // been played at stays listed while it is pinned - otherwise there is no way
+  // back out except undoing the filter you cannot see.
+  const CMRS = [{cm360:45, score:100}, {cm360:45, score:110}, {cm360:52, score:120}];
+  const legOff = cmDotLegend(CMRS);
+  const legOn  = cmDotLegend(CMRS, 45);
+  t('cm legend lists one chip per cm', (legOff.match(/class="cmchip/g)||[]).length, 2);
+  t('nothing pinned means nothing pressed', (legOff.match(/cmchip on/g)||[]).length, 0);
+  t('pinning presses exactly one chip', (legOn.match(/cmchip on/g)||[]).length, 1);
+  t('the pressed chip is the pinned cm', /data-cm="45"[^>]*aria-pressed="true"/.test(legOn), true);
+  t('the other cm stays listed while pinned', /data-cm="52"[^>]*aria-pressed="false"/.test(legOn), true);
+  // spark() draws the pinned runs but must build the chips from the full list.
+  const SPRS = CMRS.map((r,i) => ({...r, date:new Date(2026,0,i+1)}));
+  const pinnedOnly = SPRS.filter(r => r.cm360 === 45);
+  t('chips come from the full list, not the filtered one',
+    (spark(pinnedOnly, true, SPRS, 45).match(/class="cmchip/g)||[]).length, 2);
 
   const fails = R.filter(r => !r.ok);
   const fmtv = v => (typeof v === 'number' ? (Math.round(v * 1e6) / 1e6) : String(v));

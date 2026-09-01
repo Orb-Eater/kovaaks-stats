@@ -50,6 +50,7 @@ so you can tell at a glance which one you are looking at.
 | `app/index.html` | Full view. |
 | `app/simple.html` | Stripped-back view. Omits markup; `$()` returns a detached stub for missing ids so the same script runs on both. |
 | `app/styles.css` | All styling. |
+| `app/lab.html` + `app/lab.js` | **Effects lab** — dev workbench that fires every animation and notification on demand against synthetic runs. Loads `core.js` and calls into it; nothing is reimplemented. Linked from the footer on dev builds only. |
 | `app/data/benchmarks.json` | Viscose Benchmarks S2 — Medium/Hard/Expert, 39 scenarios each. Rebuilt by `planning/viscose-import.py`. |
 | `release.py` | Freezes the working copy into `releases/vX.Y.Z/` with its own port. |
 | `publish.py` | Publishes a frozen release to GitHub as **base** or **beta**. Does nothing without `--yes`. |
@@ -170,8 +171,11 @@ Working and verified on ~21,600 real runs (Batch 8 spot-checked via
 - **Warnings are icons, not paragraphs.** ℹ️ (early-baseline in use) and ⚠️
   (under-powered, with a concrete "N more runs, ~M days" tooltip) sit next to
   the scenario name; hover/focus for the text.
-- **Expand** button per scenario card (larger text, wider chart) and
-  **clickable cm chips** (sets the Specific-cm filter to that value).
+- Scenario cards are **expanded by default**, with a **Full width** button that
+  breaks one card out to 1920px (chart beside the numbers, 2:1 aspect kept).
+- **cm chips are a per-card toggle** — they filter the scenario you clicked and
+  nothing else. They used to drive the app-wide Specific-cm filter, which moved
+  every scenario on the page. See NOTES.md, "Two cm filters".
 - Session badge no longer shows a flat "0.0%"; falls back to the cm/360
   you're currently playing when that figure is non-zero instead.
 - **"Mostly idle this session" popup** under 40% active play, once per

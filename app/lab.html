@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Effects lab — KovaaK's stats</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+
+<h1>Effects lab</h1>
+<p class="sub">A workbench for the animations and notifications, fired on demand against
+synthetic runs. It loads the real <code>core.js</code>, so what you see here is exactly what the
+app does — change the code, reload this page, watch it. Not linked from the app itself.</p>
+
+<div class="panel labpanel">
+  <h3 class="labh">Celebrations</h3>
+  <p class="note">A PB gets the full card with confetti; anything less gets the quiet version.
+  The card clears itself after <b id="celShow">?</b>, the confetti stops after <b id="confShow">?</b>.</p>
+  <div class="labrow">
+    <button type="button" data-fire="pb">🎉 Personal best <span class="dim">(confetti)</span></button>
+    <button type="button" data-fire="pbcm">🎉 PB at a cm <span class="dim">(confetti)</span></button>
+    <button type="button" data-fire="high">★ New highest score</button>
+    <button type="button" data-fire="first">⭐ First score</button>
+    <button type="button" data-fire="clearcel">Clear</button>
+  </div>
+  <div class="labrow">
+    <label class="labnum">card stays <input type="number" id="celMs" min="1" max="120" step="1"> s</label>
+    <label class="labnum">confetti runs <input type="number" id="confMs" min="1" max="120" step="1"> s</label>
+    <span class="note" style="margin:0">Live — no reload needed. These are <code>TUNING.CELEBRATE_MS</code>
+    and <code>TUNING.CONFETTI_MS</code>; the lab does not write them back to the file.</span>
+  </div>
+  <div id="celebrate"></div>
+</div>
+
+<div class="panel labpanel">
+  <h3 class="labh">Nudges and alerts</h3>
+  <p class="note">Every one of these is dismissible and none of them repeat inside a session.
+  The lab resets that guard each time so you can fire them repeatedly.</p>
+  <div class="labrow">
+    <button type="button" data-fire="break">☕ Break reminder</button>
+    <button type="button" data-fire="lowactive">⏸ Mostly idle session</button>
+    <button type="button" data-fire="idle">No completed run for a while</button>
+    <button type="button" data-fire="live">Just played (live note)</button>
+  </div>
+  <div id="breakAlert"></div>
+  <div id="lowActiveAlert"></div>
+  <div id="liveNote"></div>
+</div>
+
+<div class="panel labpanel">
+  <h3 class="labh">Session panel</h3>
+  <p class="note">Rebuilt from the synthetic runs, so the switches change what the app can
+  actually see rather than faking the output.</p>
+  <div class="labrow">
+    <label class="chk"><input type="checkbox" id="labLogEvery"> “Log every run” on in KovaaK's
+      <span class="dim">— restarts reach the stats folder, so the counter appears</span></label>
+  </div>
+  <div class="labrow">
+    <label class="chk"><input type="checkbox" id="labSpam"> Restart spam
+      <span class="dim">— enough restarts per completed run to trip the RNG-chasing alert</span></label>
+    <label class="chk"><input type="checkbox" id="labIdleSess"> Mostly idle session
+      <span class="dim">— long gaps, so the &lt;40% active nudge has something to fire on</span></label>
+  </div>
+  <div class="labrow">
+    <button type="button" data-fire="undismiss">Un-dismiss the “log every run” hint</button>
+    <button type="button" data-fire="resession">Rebuild session panel</button>
+  </div>
+  <div id="sessionPanel"></div>
+</div>
+
+<div class="panel labpanel">
+  <h3 class="labh">Scenario card</h3>
+  <p class="note">The real chart and the real cm chips, on synthetic runs. Chips here are a
+  preview of the styling only — the pinning logic lives on the app's own list.</p>
+  <div class="labrow">
+    <button type="button" data-fire="cardsize">⤢ Full width</button>
+    <button type="button" data-fire="pinchip">Toggle a pinned chip</button>
+    <span class="note" style="margin:0">Full width breaks out to 1920px; below ~1300px of
+    viewport it stacks instead.</span>
+  </div>
+  <div id="labCard"></div>
+</div>
+
+<footer class="sitefoot">
+  <p class="credit"><a href="index.html">&larr; back to the app</a></p>
+</footer>
+
+<script>window.KVA_LAB = 1;</script>
+<script src="build.js"></script>
+<script src="core.js"></script>
+<script src="lab.js"></script>
+</div>
+</body>
+</html>

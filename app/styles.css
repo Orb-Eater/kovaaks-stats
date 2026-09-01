@@ -182,17 +182,55 @@ tr:last-child td{border-bottom:none}
 .earlytag{font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);
   border:1px dotted var(--ink3);border-radius:4px;padding:0 4px;margin-left:4px;cursor:help;
   text-decoration:none}
-.cmchip{cursor:pointer;border-radius:4px}
+.cmchip{cursor:pointer;border-radius:4px;padding:1px 5px;margin:-1px -1px}
 .cmchip:hover,.cmchip:focus-visible{color:var(--ink)}
 .cmchip:focus-visible{outline:1px solid var(--med);outline-offset:2px}
+/* The pinned chip. Filtering one card is invisible unless the thing you clicked
+   looks pressed. */
+.cmchip.on{background:rgba(74,158,224,.18);color:var(--ink);box-shadow:inset 0 0 0 1px var(--med)}
+/* Says which cm the card is pinned to, and clears it. */
+.cmpin{cursor:pointer;color:var(--med);border-bottom:1px dotted currentColor}
+.cmpin:hover{color:var(--ink)}
+.cmpin.miss{color:var(--low)}
 
 /* Expand a scenario card for a closer look (Batch 8): same content, more room. */
+/* Every scenario card in the run list is drawn at this size now - it used to be
+   behind an Expand button that was being pressed every time anyway. .scen is
+   left alone because the session panel and the cm breakdown use it too, and
+   those should not grow. */
 .scen-expanded{padding:26px 30px}
 .scen-expanded h3{font-size:19px}
 .scen-expanded .meta,.scen-expanded table{font-size:14px}
 .scen-expanded .legend{font-size:12.5px}
 .scen-expanded .spark{max-width:1100px}
 .scen-expanded .scalenote{max-width:1100px}
+
+/* Full width: one card breaks out of the 1180px column, up to 1920px. The page
+   around it does not move - this is a closer look at one scenario, not a layout
+   mode. The breakout is inset from the viewport so it never collides with the
+   scrollbar. */
+.scen-full{--fw:min(1920px,calc(100vw - 60px));
+  width:var(--fw);margin-left:calc(50% - var(--fw)/2);margin-right:calc(50% - var(--fw)/2)}
+/* The numbers and the chart sit side by side, which is the only honest way to
+   spend the extra width: the chart keeps its 2:1 aspect (CHART-SCALING.md - the
+   slope is only readable at a sane aspect, so stretching it would be a lie),
+   and the space that frees up goes to the table instead of to whitespace. */
+.scen-full .scenbody{display:grid;gap:16px 30px;align-items:start;
+  grid-template-columns:minmax(0,1fr) minmax(320px,26rem);
+  grid-template-areas:"chart nums" "chart key"}
+.scen-full .scenchart{grid-area:chart;min-width:0}
+.scen-full .scennum{grid-area:nums}
+.scen-full .legend{grid-area:key;align-self:start}
+.scen-full .scennum table{width:100%}
+/* Height-capped as well as width-capped: at 1920px wide a 2:1 chart is 960px
+   tall, which is taller than the screen it is being read on. */
+.scen-full .spark{max-width:min(1500px,calc((100vh - 240px) * 2));max-height:calc(100vh - 240px)}
+.scen-full .scalenote{max-width:1100px}
+@media(max-width:1300px){
+  /* Below this there is no width to break out into, so full width just means
+     "as wide as the page", stacked. */
+  .scen-full .scenbody{grid-template-columns:1fr;grid-template-areas:"nums" "chart" "key"}
+}
 
 /* --- sessions / breaks -------------------------------------------------- */
 .breakalert{background:#3a2e14;border:1px solid #7c6a2b;color:#f0d68a;border-radius:8px;
@@ -290,3 +328,14 @@ tr:last-child td{border-bottom:none}
   color:var(--ink2);line-height:1.6}
 .loghint b{color:var(--ink)}
 .loghint .dim{color:var(--ink3)}
+
+/* ---- effects lab (lab.html) ---------------------------------------------
+   A dev workbench, not part of the app. Styled with the app's own tokens so
+   what it previews looks like what ships. */
+.labpanel{padding:20px 22px}
+.labh{font-size:15px;font-weight:500;margin:0 0 6px}
+.labrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0 0}
+.labrow button{font-size:13px;padding:7px 13px}
+.labnum{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--ink2)}
+.labnum input{width:74px}
+.dim{color:var(--ink3)}

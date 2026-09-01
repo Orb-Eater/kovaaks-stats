@@ -86,6 +86,36 @@ so you can tell at a glance which one you are looking at.
 
 ---
 
+## The repository
+
+`git init` is done, everything is committed, and `v0.2.0` is tagged. **It has not
+been pushed** — creating a private repo needs a GitHub login, which is the user's
+to give, not mine. Two commands finish it, run in this folder:
+
+```bash
+gh auth login
+```
+
+```bash
+gh repo create kovaaks-stats --private --source=. --remote=origin --push
+```
+
+`gh` (GitHub CLI 2.98) is already installed. Afterwards, `git push --tags` sends
+the version tags.
+
+What is deliberately **not** tracked: `config.json` (it holds the user's own
+stats-folder path), `cache/`, `logs/`, and `releases/`. Frozen releases are
+reproducible from tags — `git checkout v0.2.0` gives that exact build — so
+committing eight copies of the whole app would bloat the repo for nothing. They
+still exist on disk and keep working. Releases before v0.2.0 predate the repo and
+live only in `releases/`.
+
+There is **no LICENSE file**. Correct for a private repo; it matters the day it
+goes public, because with no licence nobody may legally use or fork it. That
+question is open in `planning/BACKLOG.md`.
+
+---
+
 ## Verifying a build
 
 ```bash

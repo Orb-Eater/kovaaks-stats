@@ -646,3 +646,74 @@ scenario you tried; the warm-up exclusion exists to keep biased scores out of a
 measurement, and these are not measurements. The drawer says so, and says
 plainly that a PB count rises fastest when you try new scenarios - the second
 run of a new scenario beats the first almost every time.
+
+## Score by cm
+
+`app/data/categories.md` holds the rules. It is plain text, it is the only copy,
+and `parseCategoryRules()` reads it at page load - edit, reload, done.
+
+**It lives in `app/data/` and not `planning/` because `planning/` is not in
+`release.py`'s COPY_FILES or COPY_DIRS.** A rules file there would work in the
+working copy and be missing from every frozen build, which is the one place it
+actually has to work.
+
+    parseCategoryRules(text)   -> [{cat, sub, notes, rules:[{when, terms, then}]}]
+    cmLevels(runs, extremes)   -> per-rounded-cm {cm, n, mean, sd, se, first, last}
+    cmAnalysis(runs, extremes) -> {levels, regular, best, worst, diff, overlap}
+    evalTerm(term, analysis)   -> boolean, one condition
+    evalRules(entry, analysis) -> {fired, skipped}
+
+Parser rules worth knowing:
+
+- **Fenced blocks are skipped.** The file documents its own format in one, and
+  parsing it invented a category called `<Category>` holding `WHEN: <condition>`.
+- **`(add your ...)` marks a template**, and templates are dropped rather than
+  shown. Printing "(add your interpretation)" as a finding is worse than nothing.
+- **An unrecognised condition is reported back in the panel**, with the list of
+  ones that work. A rule that silently never fires is the worst outcome for
+  somebody editing a text file with no feedback.
+- Trailing prose after a valid condition ("`pct_below_regular(0) at slower cm`")
+  keeps the rule but is quoted back as not checked.
+
+**Direction matters and is easy to get backwards.** cm/360 is distance per turn,
+so a bigger number is a slower sensitivity: `faster_than(50)` is true when your
+best level is *below* 50. There are self-tests pinning every condition's
+direction, because inverting one would invert every interpretation in the file.
+
+### The two confounds
+
+This is the easiest chart here to lie with, so the panel spends most of its
+space on them:
+
+1. **Sample size.** `CM_LEVEL_MIN_N` (10) gates every level. Below it a level is
+   neither drawn nor available to a rule. Every point carries its 95% interval.
+2. **Time.** `cmTimeOverlap(best, regular)` checks whether the two levels every
+   interpretation rests on were played in the same stretch. Disjoint and 7+ days
+   apart gets the yellow warning; disjoint but closer, or thin overlap, gets a
+   quiet note. Warning about a two-day gap would train the reader to ignore the
+   warning, which costs more than the false negative.
+
+The headline line above the readings states the best-vs-regular difference with
+its interval, and says outright when it spans zero. The rules still fire - they
+are the user's rules - but nobody reads them thinking the data supports more than
+it does.
+
+### Scope of the runs
+
+The panel uses the scenario's **whole history**, not the current window.
+Comparing sensitivities needs every run of each it can get, and the thing a short
+window would otherwise hide - that the levels were played months apart - is
+measured and stated rather than avoided.
+
+### Category assignment
+
+Stored per build in `kva_scencat` as `{scenarioKey: "Cat / Sub"}`. `guessCategory`
+offers a first pick from the scenario name, labelled "guessed from the name" in
+the UI. It is substring matching on a title; it exists to save picking the same
+thing forty times, not to be right. With no sub-category in the name it prefers
+the `Regular` entry - an earlier version took whichever entry came first in the
+file, which quietly labelled everything Micro.
+
+> Corporate Serf Dashboard has a sensitivity-vs-score plot. It is **AGPL-3.0**.
+> Nothing has been taken from it - only the public description of the feature was
+> read. Everything here is built on this project's own cm machinery.

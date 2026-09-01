@@ -51,6 +51,7 @@ so you can tell at a glance which one you are looking at.
 | `app/simple.html` | Stripped-back view. Omits markup; `$()` returns a detached stub for missing ids so the same script runs on both. |
 | `app/styles.css` | All styling. |
 | `app/lab.html` + `app/lab.js` | **Effects lab** — dev workbench that fires every animation and notification on demand against synthetic runs. Loads `core.js` and calls into it; nothing is reimplemented. Linked from the footer on dev builds only. |
+| `app/data/categories.md` | **Score-by-cm interpretation rules.** Plain text, parsed at page load, the only copy. In `app/data/` because `planning/` is not copied into a release. |
 | `app/data/benchmarks.json` | Viscose Benchmarks S2 — Medium/Hard/Expert, 39 scenarios each. Rebuilt by `planning/viscose-import.py`. |
 | `release.py` | Freezes the working copy into `releases/vX.Y.Z/` with its own port. |
 | `publish.py` | Publishes a frozen release to GitHub as **base** or **beta**. Does nothing without `--yes`. |
@@ -171,6 +172,9 @@ Working and verified on ~21,600 real runs (Batch 8 spot-checked via
 - **Warnings are icons, not paragraphs.** ℹ️ (early-baseline in use) and ⚠️
   (under-powered, with a concrete "N more runs, ~M days" tooltip) sit next to
   the scenario name; hover/focus for the text.
+- **Score by cm** per scenario — average at each cm/360 with intervals, your
+  own rules from `app/data/categories.md`, and explicit handling of the two
+  confounds (thin levels, levels played at different times).
 - **Notifications are an overlay** (`toast()` → `#toastLayer`), not divs in the
   page flow. A PB throws **full-screen confetti**.
 - **Sessions split at 30 minutes**; sittings on the same day keep the break

@@ -5,6 +5,81 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.7.0 - 2026-09-01
+
+**TL;DR - Batch 10. Every scenario you have played at more than one sensitivity
+gets a "Score by cm" panel: your average at each cm with its confidence
+interval, and whatever your own rules file makes of the shape. It spends most of
+its space telling you when not to believe it.**
+
+### Score by cm, per scenario
+
+- **A "Score by cm" button** on any scenario played at more than one
+  sensitivity. It draws your average at each cm/360 with a 95% interval on
+  every point, marks the sensitivity you play most and the one you score best
+  at, and labels each level with its run count.
+- **The interpretations are yours.** They live in **`app/data/categories.md`**
+  as plain text. The app parses it, evaluates the conditions and prints what you
+  wrote. It contains no interpretations of its own.
+- **A category picker per scenario**, built from the headings in that file - add
+  a heading and it appears in the picker, no code change. Your choice is
+  remembered. A first guess is made from the scenario name and clearly labelled
+  as a guess, because it is substring matching on a title.
+- **Extremes below 25cm and above 80cm are excluded by default**, with a toggle.
+  They are usually a slider accident rather than a sensitivity you play.
+
+### The two ways this chart lies
+
+Both are handled out loud rather than hoped away. This is the easiest chart in
+the app to mislead yourself with.
+
+- **Sample size.** A three-run sensitivity beside a two-hundred-run one looks
+  like a data point and is a rumour. **A level needs 10+ runs** before it is
+  drawn or used in any rule.
+- **Time.** If you played 60cm in March and 52cm in August, what separates them
+  is five months of practice, not eight centimetres. The panel measures whether
+  your best level and your most-played one overlap in time and **says so when
+  they do not**, with the gap in days. Under a week apart it says so quietly -
+  crying wolf about two days would train you to ignore the warning.
+- Above every interpretation sits the one comparison they all rest on: your best
+  sensitivity against the one you actually play, **with its interval**. When
+  that interval spans zero the panel says the readings below are a hypothesis,
+  not a finding.
+
+### Honest about the rules file
+
+- **Template entries are never shown.** An entry still reading
+  `(add your interpretation)` is a template, and printing that as a finding
+  would be worse than printing nothing.
+- **A condition the app cannot evaluate is reported, not swallowed.** Your
+  Control Paradise rule containing "scores fall toward 20cm" is listed as not
+  evaluated, with the conditions that do work. A rule you wrote that silently
+  never fires is the worst possible outcome.
+- The format block at the top of the file is skipped - parsing it would invent a
+  category called `<Category>` holding a rule reading `WHEN: <condition>`.
+- `**bold**` and `` `code` `` in your text render, after escaping.
+
+### Where the rules file lives
+
+- **Moved from `planning/scenario-analysis/` to `app/data/categories.md`.** It
+  had to: `planning/` is not copied into a frozen release, so a rules file there
+  would only ever work in the working copy and the feature would be dead in
+  every build you actually run. It is still plain text, still the only copy, and
+  editing it still needs no code changes - reload and it applies.
+
+### Reference
+
+- **"Score by cm" added to the drawer**: what the chart is, the two failure
+  modes, which direction is which (cm/360 is distance per turn, so a bigger
+  number is a slower sensitivity), and why this is still work in progress until
+  the baseline page exists.
+
+### Checks
+
+- 21 new self-test checks: the parser (fenced blocks, indented continuations,
+  AND, placeholders, unknown conditions), every condition's direction, the
+  minimum-runs and extremes filters, and disjoint-time detection. 72 total.
+
 ## v0.6.0 - 2026-09-01
 
 **TL;DR - Batch 9. Notifications moved on top of the page instead of inside it,

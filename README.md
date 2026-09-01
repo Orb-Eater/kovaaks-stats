@@ -83,6 +83,11 @@ Requires **Python 3.8+**. No pip install, no dependencies — standard library o
   app exists to avoid.
 - **Scenario testing** — Viscose Benchmarks S2 (Medium, Hard, Expert), searchable,
   with your rank against every threshold.
+- **Score by cm, per scenario** — your average at each sensitivity with its
+  confidence interval, and an explicit warning when two sensitivities were
+  played months apart, because then the gap between them is practice rather
+  than sensitivity. The interpretations come from a plain-text rules file you
+  edit yourself.
 - **A month calendar** — this month and the four before it, each with its Typical
   change against the month before, the days you played, and how many scenarios
   you tried for the first time.

@@ -309,23 +309,39 @@ Requested mid-flight, shipped ahead of Batch 9. Full detail in `CHANGELOG.md`.
       with that scenario's caveats, plus the icon key and the reasoning. Replaces
       the 12px hover text. — *v0.6.0*
 
-## Batch 10 — score-by-cm analysis  ← **next**
+### Batch 10 — score-by-cm analysis → v0.7.0
 
-Rules live in `planning/scenario-analysis/categories.md` as plain text so you can
-edit them without touching code.
+Rules live in **`app/data/categories.md`** as plain text so you can edit them
+without touching code. *(Moved there from `planning/scenario-analysis/`, which is
+not copied into a release — the feature would have been dead in every build you
+actually run.)*
 
 > Corporate Serf Dashboard does a sensitivity-vs-score plot per scenario. **It is
 > AGPL-3.0** — copying any of it would force this project to AGPL too. Nothing has
 > been taken from it; only the public feature description was read.
 
-- [ ] Per-scenario "score by cm" toggle
-- [ ] Category picker (Static/Dynamic Clicking → Micro/Wide/Regular; Control
-      Tracking; Smoothness; Reactive) with sub-options
-- [ ] Apply the written interpretation logic per category
-- [ ] Extremes (<25cm, >80cm) excluded by default, toggleable
-- [ ] "Work in progress" disclaimer pointing at the baseline page
+- [x] Per-scenario **"Score by cm"** toggle, with a 95% interval on every level
+      and the run count under each. — *v0.7.0*
+- [x] **Category picker** built from the headings in the rules file, so adding a
+      heading adds an option. Remembered per scenario; a guess from the name is
+      offered and labelled as a guess. — *v0.7.0*
+- [x] **The written rules are applied.** Templates are never shown; a condition
+      the app cannot evaluate is reported back with the list of ones that work,
+      rather than silently never firing. — *v0.7.0*
+- [x] **Extremes (<25cm, >80cm) excluded by default**, toggleable. — *v0.7.0*
+- [x] **"Work in progress" disclaimer** pointing at the baseline page, plus a
+      "Score by cm" page in the reference drawer. — *v0.7.0*
+- [x] **Both confounds handled out loud**: levels under 10 runs are not drawn or
+      used, and levels played in different weeks are called out with the gap in
+      days. — *v0.7.0*
 
-## Batch 11 — baseline page, benchmarks and imports
+**Your rules file is still mostly a template.** Static Clicking / Micro has 2
+rules, Control Paradise has 4 (one of which uses "scores fall toward 20cm", which
+is prose rather than a condition and is reported as not evaluated). Everything
+else is empty and says so in the picker. The conditions available are documented
+in a table at the top of the file.
+
+## Batch 11 — baseline page, benchmarks and imports  ← **next**
 
 Scenario list is a plain document in `planning/baseline/scenarios.md`.
 
@@ -345,9 +361,10 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
 - [x] **Renamed the Benchmarks tab to "Scenario testing"** — *v0.4.0*
 - [x] **Viscose S2 Medium/Hard/Expert ingested**, matty dropped, 39 scenarios
       each. Built by `planning/viscose-import.py`. — *v0.4.0*
-- [ ] **You wanted to overhaul this tab yourself** — the rename and the data are
-      in place so there is something real to work against. Say what you want it
-      to become and I will build it.
+- [ ] **Scenario testing overhaul — deferred, and out of scope for the GitHub
+      release.** Your call, 2026-09-01: it gets its own plan later and does not
+      hold anything up. The rename and the Viscose S2 data are in place; nothing
+      else here waits on it.
 - [ ] **Playlist import via share code** (e.g. `KovaaKsPlunderingOlivegreenClutch`).
       Outbound API calls are approved, so this resolves server-side against
       KovaaK's rather than needing an offline export. First feature to make a

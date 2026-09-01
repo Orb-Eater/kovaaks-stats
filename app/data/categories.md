@@ -11,10 +11,27 @@ WHEN: <condition>
 => <what it means>
 ```
 
-Conditions available: `faster_than(cm)`, `slower_than(cm)`, `higher_avg_at_faster`,
-`higher_avg_at_slower`, `pct_below_regular(n)`, `regular_slower_than(cm)`.
+Conditions available, joined with `AND`:
 
-Extremes below 25cm and above 80cm are excluded by default (toggleable).
+| condition | true when |
+|---|---|
+| `faster_than(cm)` | your best-scoring level is **faster** than this (a smaller cm number) |
+| `slower_than(cm)` | your best-scoring level is **slower** than this (a bigger cm number) |
+| `higher_avg_at_faster` | some level faster than your most-played one scores higher than it |
+| `higher_avg_at_slower` | some level slower than your most-played one scores higher than it |
+| `pct_below_regular(n)` | some level averages at least n% below your most-played one |
+| `regular_slower_than(cm)` | the sensitivity you play most is slower than this |
+
+**cm/360 is distance per turn, so a bigger number is a slower sensitivity.**
+80cm is slower than 45cm. Everything above reads that way.
+
+A level needs **10+ runs** before it is drawn or used in any rule — comparing a
+three-run level against a two-hundred-run one is not a comparison. Extremes
+below 25cm and above 80cm are excluded by default (toggleable).
+
+An entry whose rule or interpretation still says `(add your ...)` is treated as
+a template and never shown. A condition the app does not recognise is reported
+back in the panel rather than silently ignored.
 
 ---
 
@@ -77,7 +94,13 @@ WHEN: slower_than(58) AND scores fall toward 20cm
    stability/reading ability.
 
 ## 4. Smoothness
-(add entries)
+
+### Smoothness
+WHEN: (add your rule)
+=> (add your interpretation)
 
 ## 5. Reactive
-(add entries)
+
+### Reactive
+WHEN: (add your rule)
+=> (add your interpretation)

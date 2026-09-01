@@ -1516,9 +1516,17 @@ function render(){
           ? ' · <span class="cmpin miss" title="Nothing at '+pinCm+'cm inside this window, so the card is showing every cm. Click to clear.">no '+pinCm+'cm runs here ✕</span>'
           : ' · <span class="cmpin" title="This card only — everything else on the page is untouched. Click to show every cm again.">'+pinCm+'cm only ✕</span>');
     const full = fullWidthScenarios.has(key);
+    // Offered whenever the scenario has been played at more than one
+    // sensitivity at all. Whether there is enough of each to compare is the
+    // panel's job to say, and saying it is more use than a missing button.
+    const multiCm = new Set((r.rsAll || r.rs).filter(x => x.cm360 != null)
+                                             .map(x => Math.round(x.cm360))).size > 1;
+    const cmOpen = cmPanelOpen.has(key);
     return '<div class="scen scen-expanded'+(full?' scen-full':'')+'" data-scen="'+esc(key)+'"><h3>'+
       esc(r.scen)+' '+infoIcon+warnIcon+' '+sessBadge+
-      '<button type="button" class="minibtn fullBtn" data-scen="'+esc(key)+'">'+(full?'⤡ Exit full width':'⤢ Full width')+'</button></h3>'+
+      '<button type="button" class="minibtn fullBtn" data-scen="'+esc(key)+'">'+(full?'⤡ Exit full width':'⤢ Full width')+'</button>'+
+      (multiCm ? '<button type="button" class="minibtn cmToggle'+(cmOpen?' on':'')+'" data-scen="'+esc(key)+'">'+
+        (cmOpen?'Hide score by cm':'Score by cm')+'</button>' : '')+'</h3>'+
       '<p class="meta">'+v.st.n+' runs'+(v.zeroRuns ? ' <span class="zerotag" title="Runs that scored 0 — a NeverMiss that ended on the first shot, for example. Drawn on the chart, never counted in a percentage.">+'+v.zeroRuns+' scored 0</span>' : '')+' · spread '+fmt(v.st.cv)+'% · last played '+v.rs[v.rs.length-1].date.toISOString().slice(0,10)+
       (v.cells.length>1 ? ' · '+v.cells.length+' cm cells' : '')+pinNote+'</p>'+
       '<div class="scenbody"><div class="scennum">'+
@@ -1540,7 +1548,14 @@ function render(){
       '<span><i style="background:var(--low)"></i>rolling bottom 10%</span>'+
       '<span><i style="background:var(--ink3)"></i>individual runs</span>'+
       '<span><i class="bandkey"></i>±1σ noise floor</span></div>'+
-      '</div></div>';
+      '</div>'+
+      // Deliberately the scenario's WHOLE history rather than the current
+      // window: comparing sensitivities needs every run of each one it can get,
+      // and the thing a short window would otherwise hide - that you played them
+      // months apart - is measured and called out inside the panel itself.
+      (cmOpen ? cmPanelHtml(r.scen, key, RUNS.filter(x =>
+          runVisible(x) && x.scen === r.scen && x.score > 0)) : '')+
+      '</div>';
   }).join('') || '<p style="color:var(--ink2)">' +
     (runQ ? 'No scenarios match that search.' : 'No scenarios meet the minimum run count in this window.') + '</p>';
 
@@ -1909,6 +1924,443 @@ function classifyAchievement(run){
 }
 
 // ---------------------------------------------------------------------------
+// Score by cm/360, per scenario.
+//
+// The premise: how your score moves as sensitivity changes says something about
+// what you are actually short of - arm stability, wrist control, micro speed.
+// The rules for reading that are YOURS and live in app/data/categories.md as
+// plain text. This file parses them and evaluates them; it does not contain any.
+//
+// Two things make this the easiest chart in the app to lie with, and both are
+// handled explicitly rather than hoped away:
+//
+//   1. Sample size. A three-run cm sitting next to a two-hundred-run cm looks
+//      like a data point and is a rumour. Levels below CM_LEVEL_MIN_N runs are
+//      not plotted and take no part in any rule.
+//   2. Time. If you played 60cm in March and 52cm in August, the difference
+//      between them is eight months of practice, not eight cm of sensitivity.
+//      Overlap is measured and said out loud when it is missing.
+//
+// Corporate Serf Dashboard has a sensitivity-vs-score plot. It is AGPL-3.0 and
+// nothing has been taken from it - only the public description of the feature
+// was read. Everything here is derived from this project's own cm machinery.
+// ---------------------------------------------------------------------------
+let CATEGORY_RULES = null;      // parsed app/data/categories.md
+const cmPanelOpen = new Set();  // scenario keys with the panel expanded
+let cmExtremes = false;         // include <25cm and >80cm
+
+// Placeholder entries in the rules file are templates, not rules. Showing
+// "(add your interpretation)" to somebody as a finding would be worse than
+// showing nothing.
+const RULE_PLACEHOLDER = /\(add your/i;
+
+// A condition is `name` or `name(number)`, joined by AND. Anything else is
+// reported back rather than silently ignored - a rule you wrote that the app
+// cannot evaluate is something you need to know about.
+function parseCondition(expr){
+  const terms = expr.split(/\s+AND\s+/i).map(t => t.trim()).filter(Boolean);
+  return terms.map(t => {
+    const m = /^([a-z_]+)\s*(?:\(\s*(-?[\d.]+)\s*\))?/i.exec(t);
+    if(!m) return {raw:t, ok:false};
+    const known = ['faster_than','slower_than','higher_avg_at_faster','higher_avg_at_slower',
+                   'pct_below_regular','regular_slower_than'];
+    const takesArg = ['faster_than','slower_than','pct_below_regular','regular_slower_than'];
+    const name = m[1].toLowerCase();
+    const arg = m[2] == null ? null : parseFloat(m[2]);
+    const extra = t.slice(m[0].length).trim();
+    if(known.indexOf(name) === -1) return {raw:t, ok:false};
+    if(takesArg.indexOf(name) !== -1 && arg == null) return {raw:t, ok:false};
+    // Trailing prose ("at slower cm") is not a condition. Keep the rule, but
+    // remember the words so they can be shown rather than quietly dropped.
+    return {name, arg, extra, raw:t, ok:true};
+  });
+}
+
+function parseCategoryRules(text){
+  const cats = [];
+  let entry = null, rule = null;
+  const lines = text.split(/\r?\n/);
+  // The file documents its own format in a fenced block at the top. Parsing
+  // that would invent a "<Category> / <Sub-category>" entry holding a rule that
+  // reads "WHEN: <condition>" - the instructions turning up as data.
+  let fenced = false;
+  for(let i=0;i<lines.length;i++){
+    const line = lines[i];
+    if(/^\s*```/.test(line)){ fenced = !fenced; continue; }
+    if(fenced) continue;
+    const h3 = /^###\s+(.+?)\s*$/.exec(line);
+    if(h3){
+      const parts = h3[1].split('/').map(x => x.trim());
+      entry = {cat: parts[0], sub: parts[1] || '', notes: [], rules: []};
+      cats.push(entry);
+      rule = null;
+      continue;
+    }
+    if(/^##\s/.test(line)){ entry = null; rule = null; continue; }
+    if(!entry) continue;
+    const w = /^WHEN:\s*(.+?)\s*$/i.exec(line);
+    if(w){
+      rule = {when: w[1], terms: parseCondition(w[1]), then: ''};
+      entry.rules.push(rule);
+      continue;
+    }
+    const a = /^=>\s*(.+?)\s*$/.exec(line);
+    if(a){ if(rule) rule.then = a[1]; continue; }
+    // Indented continuation of the current interpretation.
+    if(rule && rule.then && /^\s+\S/.test(line)){ rule.then += ' ' + line.trim(); continue; }
+    // Free prose under a heading, before any WHEN - shown as context.
+    if(!rule && line.trim() && !/^\s*$/.test(line)) entry.notes.push(line.trim());
+  }
+  // Drop the template entries entirely; keep real ones.
+  cats.forEach(e => {
+    e.rules = e.rules.filter(r => !RULE_PLACEHOLDER.test(r.when) && !RULE_PLACEHOLDER.test(r.then));
+    e.notes = e.notes.filter(n => !RULE_PLACEHOLDER.test(n));
+  });
+  return cats;
+}
+
+// ---------------------------------------------------------------------------
+// The measurement.
+//
+// One level per rounded cm/360, each with its own mean and its own 95% interval.
+// Levels thinner than CM_LEVEL_MIN_N runs are dropped: the whole point of this
+// view is comparing levels, and a level you cannot measure is not a comparison.
+// ---------------------------------------------------------------------------
+const CM_EXTREME_LO = 25, CM_EXTREME_HI = 80;
+function cmLevels(runs, includeExtremes){
+  const by = new Map();
+  runs.forEach(r => {
+    if(r.cm360 == null || !(r.score > 0)) return;
+    const cm = Math.round(r.cm360);
+    if(!includeExtremes && (cm < CM_EXTREME_LO || cm > CM_EXTREME_HI)) return;
+    if(!by.has(cm)) by.set(cm, []);
+    by.get(cm).push(r);
+  });
+  const out = [];
+  by.forEach((rs, cm) => {
+    if(rs.length < TUNING.CM_LEVEL_MIN_N) return;
+    const scores = rs.map(r => r.score);
+    const m = mean(scores), sdv = sd(scores);
+    const dates = rs.map(r => r.date.getTime());
+    out.push({cm, n: rs.length, mean: m, sd: sdv,
+              se: sdv / Math.sqrt(rs.length),
+              first: new Date(Math.min.apply(null, dates)),
+              last:  new Date(Math.max.apply(null, dates))});
+  });
+  return out.sort((a,b) => a.cm - b.cm);
+}
+
+// Did you play these two sensitivities in the same stretch of time, or one
+// after the other? If they never overlap, whatever separates their scores also
+// contains however much you improved in between, and no amount of arithmetic
+// here can tell the two apart.
+//
+// Measured on the pair the headline and every rule actually rest on - your best
+// level against the one you play most - rather than the worst pair anywhere,
+// which is usually two levels nothing is being concluded from.
+function cmTimeOverlap(a, b){
+  if(!a || !b || a.cm === b.cm) return null;
+  const lo = Math.max(a.first.getTime(), b.first.getTime());
+  const hi = Math.min(a.last.getTime(), b.last.getTime());
+  const union = Math.max(a.last.getTime(), b.last.getTime()) -
+                Math.min(a.first.getTime(), b.first.getTime());
+  const disjoint = hi < lo;
+  return {
+    a, b, disjoint,
+    gapDays: disjoint ? (lo - hi)/864e5 : 0,
+    share: union > 0 ? Math.max(0, hi - lo)/union : 1
+  };
+}
+
+function cmAnalysis(runs, includeExtremes){
+  const levels = cmLevels(runs, includeExtremes);
+  if(levels.length < 2) return {levels, enough:false};
+  const regular = levels.reduce((x,y) => y.n > x.n ? y : x);
+  const best    = levels.reduce((x,y) => y.mean > x.mean ? y : x);
+  const worst   = levels.reduce((x,y) => y.mean < x.mean ? y : x);
+  // The one comparison every interpretation leans on: is your best level really
+  // better than the one you actually play, or is that gap inside the noise?
+  const diff = best.cm === regular.cm ? null : (() => {
+    const d = (best.mean - regular.mean) / regular.mean * 100;
+    // SE of a ratio of two independent means, to first order.
+    const rel = Math.sqrt((best.se/best.mean)**2 + (regular.se/regular.mean)**2) * 100;
+    return {pct: d, se: rel * Math.abs(best.mean/regular.mean),
+            ns: Math.abs(d) <= TUNING.CI_Z * rel};
+  })();
+  return {levels, enough:true, regular, best, worst, diff, overlap: cmTimeOverlap(best, regular)};
+}
+
+// ---------------------------------------------------------------------------
+// Evaluating your rules against that.
+// cm/360 is distance-per-turn, so a BIGGER number is a SLOWER sensitivity.
+// ---------------------------------------------------------------------------
+function evalTerm(term, a){
+  switch(term.name){
+    case 'faster_than':        return a.best.cm < term.arg;
+    case 'slower_than':        return a.best.cm > term.arg;
+    case 'regular_slower_than':return a.regular.cm > term.arg;
+    case 'higher_avg_at_faster':
+      return a.levels.some(l => l.cm < a.regular.cm && l.mean > a.regular.mean);
+    case 'higher_avg_at_slower':
+      return a.levels.some(l => l.cm > a.regular.cm && l.mean > a.regular.mean);
+    case 'pct_below_regular':
+      return a.levels.some(l => l.cm !== a.regular.cm &&
+        (a.regular.mean - l.mean) / a.regular.mean * 100 >= term.arg);
+    default: return false;
+  }
+}
+
+function evalRules(entry, a){
+  const fired = [], skipped = [];
+  if(!entry || !a.enough) return {fired, skipped};
+  entry.rules.forEach(r => {
+    if(r.terms.some(t => !t.ok)){
+      skipped.push({when: r.when, why: 'this app cannot evaluate ' +
+        r.terms.filter(t => !t.ok).map(t => '"' + t.raw + '"').join(', ')});
+      return;
+    }
+    if(r.terms.every(t => evalTerm(t, a))){
+      const extra = r.terms.map(t => t.extra).filter(Boolean);
+      fired.push({then: r.then, when: r.when, extra});
+    }
+  });
+  return {fired, skipped};
+}
+
+// A first guess from the name, offered and labelled rather than assumed. It is
+// substring matching on a scenario title, which is exactly as reliable as that
+// sounds - it exists to save picking the same thing forty times, not to be
+// right. Anything you pick yourself is remembered and wins.
+function guessCategory(scen, cats){
+  const n = scen.toLowerCase();
+  const has = w => n.indexOf(w) !== -1;
+  let cat = null, sub = null;
+  if(has('smooth')) cat = 'Smoothness';
+  else if(has('react')) cat = 'Reactive';
+  else if(has('control') || has('tracking') || has('paradise') || has('centering')) cat = 'Control Tracking';
+  else if(has('dynamic') || has('bounce') || has('strafe') || has('psalm') || has('popcorn')) cat = 'Dynamic Clicking';
+  // "1w2ts", "1w3ts" etc is KovaaK's own naming for target switching, which is
+  // clicking. A bare "ts" is not - it appears inside far too many words.
+  else if(has('static') || has('click') || has('flick') || /\d+w\d+ts/.test(n)) cat = 'Static Clicking';
+  if(has('micro')) sub = 'Micro';
+  else if(has('wide')) sub = 'Wide';
+  if(!cat) return null;
+  const inCat = cats.filter(e => e.cat === cat);
+  if(!inCat.length) return null;
+  if(sub){
+    const exact = inCat.find(e => e.sub === sub);
+    if(exact) return exact;
+  }
+  // No sub-category in the name means Regular, not "whichever entry happens to
+  // be written first in the file" - which was quietly labelling everything
+  // Micro.
+  return inCat.find(e => e.sub === 'Regular') || inCat.find(e => !e.sub) || inCat[0];
+}
+
+// ---------------------------------------------------------------------------
+// The score-by-cm chart. Same axis rule as every other chart here: the y span
+// comes from the SPREAD of the runs, not their min and max, so the visual size
+// of a gap between two sensitivities tracks its size in units of your own noise
+// (CHART-SCALING.md). Error bars are the 95% interval on each level's mean -
+// without them this chart is a line drawn through eight rumours.
+// ---------------------------------------------------------------------------
+function cmChart(a, runs){
+  const H = 260, W = Math.round(H * TUNING.CHART_ASPECT), PL = 54, PR = 16, PT = 16, PB = 34;
+  const sc = chartScale(runs.filter(r => r.score > 0).map(r => r.score));
+  // The bars must fit even when a level's interval reaches past the run spread.
+  let lo = sc.lo, hi = sc.hi;
+  a.levels.forEach(l => {
+    lo = Math.min(lo, l.mean - TUNING.CI_Z*l.se);
+    hi = Math.max(hi, l.mean + TUNING.CI_Z*l.se);
+  });
+  const cms = a.levels.map(l => l.cm);
+  let xlo = Math.min.apply(null, cms), xhi = Math.max.apply(null, cms);
+  const pad = Math.max(2, (xhi - xlo) * 0.12);
+  xlo -= pad; xhi += pad;
+  const x = cm => PL + (cm - xlo)/(xhi - xlo) * (W - PL - PR);
+  const y = v => PT + (hi - v)/(hi - lo) * (H - PT - PB);
+
+  let ticks = '';
+  const step = niceStep((hi - lo)/4);
+  for(let v = Math.ceil(lo/step)*step; v <= hi; v += step){
+    ticks += '<line x1="'+PL+'" y1="'+y(v).toFixed(1)+'" x2="'+(W-PR)+'" y2="'+y(v).toFixed(1)+
+      '" stroke="currentColor" stroke-opacity=".10" stroke-width="1" vector-effect="non-scaling-stroke"/>'+
+      '<text x="'+(PL-6)+'" y="'+(y(v)+3.5).toFixed(1)+'" text-anchor="end" font-size="11" fill="currentColor" opacity=".8">'+fmt(v)+'</text>';
+  }
+  let bars = '', dots = '', labels = '', path = '';
+  a.levels.forEach((l, i) => {
+    const cx = x(l.cm), top = y(l.mean + TUNING.CI_Z*l.se), bot = y(l.mean - TUNING.CI_Z*l.se);
+    bars += '<line x1="'+cx.toFixed(1)+'" y1="'+top.toFixed(1)+'" x2="'+cx.toFixed(1)+'" y2="'+bot.toFixed(1)+
+      '" stroke="var(--ink3)" stroke-width="1.4" vector-effect="non-scaling-stroke"/>'+
+      '<line x1="'+(cx-4).toFixed(1)+'" y1="'+top.toFixed(1)+'" x2="'+(cx+4).toFixed(1)+'" y2="'+top.toFixed(1)+
+      '" stroke="var(--ink3)" stroke-width="1.4" vector-effect="non-scaling-stroke"/>'+
+      '<line x1="'+(cx-4).toFixed(1)+'" y1="'+bot.toFixed(1)+'" x2="'+(cx+4).toFixed(1)+'" y2="'+bot.toFixed(1)+
+      '" stroke="var(--ink3)" stroke-width="1.4" vector-effect="non-scaling-stroke"/>';
+    path += (i?'L':'M') + cx.toFixed(1) + ',' + y(l.mean).toFixed(1);
+    const isReg = l.cm === a.regular.cm, isBest = l.cm === a.best.cm;
+    dots += '<circle cx="'+cx.toFixed(1)+'" cy="'+y(l.mean).toFixed(1)+'" r="'+(isReg?5:4)+
+      '" fill="'+(isBest ? 'var(--best)' : (isReg ? 'var(--med)' : 'var(--ink2)'))+'">'+
+      '<title>'+l.cm+'cm \u2014 '+l.n+' runs, avg '+fmt(l.mean)+' \u00b1'+fmt(TUNING.CI_Z*l.se)+
+      (isReg?' (the one you play most)':'')+(isBest?' (your best average)':'')+'</title></circle>';
+    labels += '<text x="'+cx.toFixed(1)+'" y="'+(H-12)+'" text-anchor="middle" font-size="11" fill="currentColor" opacity=".8">'+
+      l.cm+'</text>'+
+      '<text x="'+cx.toFixed(1)+'" y="'+(H-1)+'" text-anchor="middle" font-size="9" fill="currentColor" opacity=".45">n='+l.n+'</text>';
+  });
+  return '<svg class="cmchart" viewBox="0 0 '+W+' '+H+'" role="img" ' +
+    'aria-label="Average score at each cm per 360, with 95% confidence intervals" ' +
+    'style="color:var(--ink3)">' + ticks +
+    '<path d="'+path+'" fill="none" stroke="var(--ink3)" stroke-width="1.4" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>' +
+    bars + dots + labels + '</svg>';
+}
+function niceStep(raw){
+  const p = Math.pow(10, Math.floor(Math.log10(Math.max(1e-9, raw))));
+  const n = raw / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+// ---------------------------------------------------------------------------
+// The panel on a scenario card.
+// ---------------------------------------------------------------------------
+function scenCatKey(){ return 'kva_scencat'; }
+function loadScenCats(){
+  try{ return JSON.parse(lsGet(scenCatKey()) || '{}'); }catch(e){ return {}; }
+}
+function saveScenCat(key, value){
+  const all = loadScenCats();
+  if(value) all[key] = value; else delete all[key];
+  lsSet(scenCatKey(), JSON.stringify(all));
+}
+
+function catLabel(e){ return e.sub ? (e.cat + ' / ' + e.sub) : e.cat; }
+
+// The rules file is markdown written by hand, so **bold** and `code` should
+// render rather than show up as punctuation. Escaped first: this turns two
+// specific patterns into tags and can never turn anything else into one.
+function ruleText(str){
+  return esc(str)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function cmPanelHtml(scen, key, runs){
+  const cats = CATEGORY_RULES || [];
+  const a = cmAnalysis(runs, cmExtremes);
+  const chosenLabel = loadScenCats()[key];
+  const guess = chosenLabel ? null : guessCategory(scen, cats);
+  const entry = chosenLabel ? cats.find(e => catLabel(e) === chosenLabel) : guess;
+
+  const picker = '<label class="cmcat">Read it as ' +
+    '<select class="cmCatSel" data-scen="' + esc(key) + '">' +
+    '<option value="">\u2014 pick a category \u2014</option>' +
+    cats.map(e => {
+      const lbl = catLabel(e);
+      const sel = entry && catLabel(entry) === lbl;
+      return '<option value="' + esc(lbl) + '"' + (sel ? ' selected' : '') + '>' + esc(lbl) +
+        (e.rules.length ? '' : ' (no rules written yet)') + '</option>';
+    }).join('') + '</select></label>' +
+    (guess && !chosenLabel
+      ? '<span class="cmguess" title="Guessed from the scenario name, which is exactly as reliable as that sounds. Pick the right one and it is remembered.">guessed from the name</span>'
+      : '');
+
+  if(!a.enough){
+    return '<div class="cmpanel">' + cmWipNote() +
+      '<p class="note">Not enough to compare yet. This needs at least two different ' +
+      'sensitivities with <b>' + TUNING.CM_LEVEL_MIN_N + '+ runs each</b>' +
+      (cmExtremes ? '' : ', counting only 25\u201380cm') +
+      ' \u2014 a level you cannot measure is not a comparison, it is a rumour.</p>' +
+      cmExtremeToggle() + '</div>';
+  }
+
+  const {fired, skipped} = evalRules(entry, a);
+
+  // The comparison every interpretation below rests on, stated before them.
+  let head;
+  if(a.best.cm === a.regular.cm){
+    head = '<p class="cmread">Your best average <b>is</b> the sensitivity you play most (<b>' +
+      a.regular.cm + 'cm</b>, ' + a.regular.n + ' runs). Nothing to explain.</p>';
+  } else {
+    const d = a.diff;
+    head = '<p class="cmread">You average <b class="' + (d.ns ? 'ns' : (d.pct>=0?'up':'dn')) + '">' +
+      (d.pct>=0?'+':'') + d.pct.toFixed(1) + '%</b> at <b>' + a.best.cm + 'cm</b> (' + a.best.n +
+      ' runs) versus <b>' + a.regular.cm + 'cm</b>, the one you play most (' + a.regular.n + ' runs). ' +
+      (d.ns
+        ? '<b>That interval spans zero</b> \u2014 \u00b1' + (TUNING.CI_Z*d.se).toFixed(1) +
+          '%. Your data cannot tell this apart from noise, so read anything below as a hypothesis, not a finding.'
+        : '\u00b1' + (TUNING.CI_Z*d.se).toFixed(1) + '%, which does not span zero.') + '</p>';
+  }
+
+  // Time confound. This is the one that quietly ruins the whole chart. A week is
+  // the line: two levels a fortnight apart could differ by a fortnight of
+  // practice; two levels two days apart could not differ by anything that
+  // matters, and crying wolf about that would train you to ignore the warning.
+  let overlapNote = '';
+  const ov = a.overlap;
+  if(ov && ov.disjoint && ov.gapDays >= 7){
+    overlapNote = '<p class="cmwarn">\u26a0 <b>You played these in different weeks, not side by side.</b> ' +
+      'Your runs at ' + ov.a.cm + 'cm and at ' + ov.b.cm + 'cm never overlap \u2014 about ' +
+      Math.round(ov.gapDays) + ' days apart. Whatever separates their scores also contains however ' +
+      'much you improved in between, and nothing here can tell the two apart. Alternate them inside ' +
+      'one stretch of days and this becomes a real comparison.</p>';
+  } else if(ov && (ov.disjoint || ov.share < 0.25)){
+    const gd = Math.max(1, Math.round(ov.gapDays));
+    overlapNote = '<p class="note">Your runs at ' + ov.a.cm + 'cm and ' + ov.b.cm + 'cm ' +
+      (ov.disjoint ? 'do not overlap, but sit only ' + gd + ' day' + (gd === 1 ? '' : 's') + ' apart'
+                   : (ov.share < 0.01 ? 'barely overlap at all'
+                        : 'overlap for only ' + Math.round(ov.share*100) + '% of the time they span')) +
+      ' \u2014 close enough that improvement in between is unlikely to explain much, but worth knowing.</p>';
+  }
+
+  const readings = fired.length
+    ? '<ul class="cmfindings">' + fired.map(f =>
+        '<li>' + ruleText(f.then) + (f.extra.length
+          ? ' <span class="dim">(the rule also said \u201c' + esc(f.extra.join(' ')) +
+            '\u201d, which is prose rather than a condition, so it was not checked)</span>' : '') +
+        '<span class="cmrule">' + esc(f.when) + '</span></li>').join('') + '</ul>'
+    : (entry
+        ? (entry.rules.length
+            ? '<p class="note">None of the ' + entry.rules.length + ' rule' + (entry.rules.length===1?'':'s') +
+              ' written for <b>' + esc(catLabel(entry)) + '</b> matched this scenario\'s shape.</p>'
+            : '<p class="note">No rules are written for <b>' + esc(catLabel(entry)) +
+              '</b> yet. Add them to <code>app/data/categories.md</code> \u2014 plain text, no code changes, ' +
+              'reload and they apply.</p>')
+        : '<p class="note">Pick a category above and any rules you have written for it are applied here.</p>');
+
+  const notes = entry && entry.notes.length
+    ? '<p class="note">' + entry.notes.map(ruleText).join(' ') + '</p>' : '';
+
+  const skippedNote = skipped.length
+    ? '<p class="note cmskip"><b>' + skipped.length + ' rule' + (skipped.length===1?'':'s') +
+      ' not evaluated:</b> ' + skipped.map(x => esc(x.when) + ' \u2014 ' + esc(x.why)).join('; ') +
+      '. Available conditions: <code>faster_than(cm)</code>, <code>slower_than(cm)</code>, ' +
+      '<code>higher_avg_at_faster</code>, <code>higher_avg_at_slower</code>, ' +
+      '<code>pct_below_regular(n)</code>, <code>regular_slower_than(cm)</code>, joined by <code>AND</code>.</p>'
+    : '';
+
+  return '<div class="cmpanel">' + cmWipNote() +
+    '<div class="cmpanelbar">' + picker + cmExtremeToggle() + '</div>' +
+    cmChart(a, runs) +
+    '<p class="cmaxis">Average score at each cm/360, with its 95% interval. ' +
+    'Only levels with <b>' + TUNING.CM_LEVEL_MIN_N + '+ runs</b> are drawn' +
+    (cmExtremes ? '' : ', and 25\u201380cm only') + '. ' +
+    '<span class="dim">Blue is the sensitivity you play most, green your best average.</span></p>' +
+    head + overlapNote + notes + readings + skippedNote + '</div>';
+}
+
+function cmExtremeToggle(){
+  return '<label class="chk cmext" title="Below 25cm and above 80cm are usually a slider accident or a one-off experiment rather than a sensitivity you play. Off by default.">' +
+    '<input type="checkbox" class="cmExtremeChk"' + (cmExtremes ? ' checked' : '') +
+    '> include under 25cm and over 80cm</label>';
+}
+
+function cmWipNote(){
+  return '<p class="cmwip"><b>Work in progress.</b> The interpretations come from ' +
+    '<code>app/data/categories.md</code>, which is mostly still a template \u2014 what it says is ' +
+    'what you wrote in it. Measuring this properly needs a curated set of scenarios played across ' +
+    'a spread of sensitivities on purpose: the baseline page, which is not built yet. ' +
+    '<button type="button" class="linkbtn cmWhy">How this is read</button></p>';
+}
+
+// ---------------------------------------------------------------------------
 // Month calendar.
 //
 // This month and the four before it. One number per month - Typical, the
@@ -2139,6 +2591,37 @@ const SIDETAB_DOCS = {
       'first almost every time. A month where you tried a lot of new scenarios will show a lot of ' +
       'PBs whether or not you got better at anything. The percentage above it is the one that ' +
       'controls for that.</p>'
+  },
+  scorebycm: {
+    title: 'Score by cm',
+    html:
+      '<p>How your score moves as sensitivity changes can say something about what you are short of ' +
+      '\u2014 arm stability, wrist control, micro speed. <b>What it says is whatever you wrote in ' +
+      '<code>app/data/categories.md</code></b>. That file is plain text; edit it, reload, and the ' +
+      'readings change. Nothing is hard-coded here.</p>' +
+      '<h3>Two ways this chart lies, and what stops them</h3>' +
+      '<p><b>Sample size.</b> A three-run sensitivity sitting next to a two-hundred-run one looks ' +
+      'like a data point and is a rumour. A level needs <b>10+ runs</b> before it is drawn or used ' +
+      'in any rule, and every point carries its 95% interval so you can see how much of the gap is ' +
+      'real.</p>' +
+      '<p><b>Time.</b> If you played 60cm in March and 52cm in August, what separates them is five ' +
+      'months of practice, not eight centimetres. Overlap between your best level and the one you ' +
+      'play most is measured, and said out loud when it is missing.</p>' +
+      '<h3>The line above the readings</h3>' +
+      '<p>Every interpretation rests on one comparison: your best-scoring sensitivity against the ' +
+      'one you actually play. That comparison is stated with its interval before any rule fires. ' +
+      'If the interval spans zero, what follows is a hypothesis, and the panel says so.</p>' +
+      '<h3>Which direction is which</h3>' +
+      '<p>cm/360 is how far the mouse travels for a full turn, so <b>a bigger number is a slower ' +
+      'sensitivity</b>. 80cm is slower than 45cm. Every condition in the rules file reads that way.</p>' +
+      '<h3>Extremes</h3>' +
+      '<p>Below 25cm and above 80cm are excluded by default. They are usually a slider accident or ' +
+      'a one-off experiment rather than a sensitivity you play. There is a toggle if you disagree.</p>' +
+      '<h3>Still work in progress</h3>' +
+      '<p>The rules file is mostly a template. And the honest way to measure this is a curated set ' +
+      'of scenarios played deliberately across a spread of sensitivities \u2014 the baseline page, ' +
+      'which is not built yet. Until then this reads whatever your normal play happens to contain, ' +
+      'which was never designed to answer the question.</p>'
   },
   calc: {
     title: 'Calculation and reasoning',
@@ -3062,6 +3545,18 @@ $('#list').addEventListener('click', e => {
     const el = document.querySelector('.scen[data-scen="' + CSS.escape(key) + '"]');
     if(el) el.scrollIntoView({block:'nearest'});
   };
+  if(e.target.closest('.cmWhy')){
+    const d = SIDETAB_DOCS.scorebycm;
+    openSideTab(d.title, d.html, null);
+    return;
+  }
+  const cmBtn = e.target.closest('.cmToggle');
+  if(cmBtn){
+    const key = cmBtn.dataset.scen;
+    if(cmPanelOpen.has(key)) cmPanelOpen.delete(key); else cmPanelOpen.add(key);
+    keepInView(key);
+    return;
+  }
   const warnBtn = e.target.closest('.scenWarn');
   if(warnBtn){
     const c = SCEN_CAVEATS[warnBtn.dataset.scen];
@@ -3089,6 +3584,21 @@ $('#list').addEventListener('click', e => {
     // Toggle, and scoped to this one card.
     if(scenCm.get(key) === cm) scenCm.delete(key); else scenCm.set(key, cm);
     keepInView(key);
+  }
+});
+
+// The category picker and the extremes toggle are form controls, so they need
+// change rather than click - delegated onto the same never-replaced wrapper.
+$('#list').addEventListener('change', e => {
+  const sel = e.target.closest('.cmCatSel');
+  if(sel){
+    saveScenCat(sel.dataset.scen, sel.value);
+    render();
+    return;
+  }
+  if(e.target.closest('.cmExtremeChk')){
+    cmExtremes = e.target.checked;
+    render();
   }
 });
 
@@ -3283,7 +3793,15 @@ function wireFolderSetup(){
       if(r2.ok) BENCH_DATA = await r2.json();
     }catch(err){ /* benchmarks unavailable; the rest still works */ }
   }
-  logMsg('app start', {page: location.pathname.split('/').pop() || 'index.html', serverMode: SERVER_MODE, benchmarks: BENCH_DATA.length});
+  // Plain text, read at load. Edit app/data/categories.md, reload, done - which
+  // is the whole point of it being a text file and not a code table.
+  try{
+    const rc = await fetch('data/categories.md', {cache:'no-store'});
+    if(rc.ok) CATEGORY_RULES = parseCategoryRules(await rc.text());
+  }catch(err){ /* the score-by-cm panel says so if this is missing */ }
+  logMsg('app start', {page: location.pathname.split('/').pop() || 'index.html', serverMode: SERVER_MODE,
+                       benchmarks: BENCH_DATA.length,
+                       cmRules: CATEGORY_RULES ? CATEGORY_RULES.reduce((a,e)=>a+e.rules.length,0) : 'none'});
   renderBenchmarkList();
 
   if(!SERVER_MODE){
@@ -3490,6 +4008,76 @@ function selfTest(){
   t('new scenarios tried counts only the never-played', newScenariosIn(MA, MB), 1);
   t('PBs exclude first-ever runs', pbsIn(MA, MB), 2);
   RUNS = KEEP;
+
+  // ---- score by cm -------------------------------------------------------
+  // The rules file documents its own format in a fenced block. Parsing that
+  // would invent a category out of the instructions.
+  const RULEDOC = [
+    '```',
+    '### <Category> / <Sub-category>',
+    'WHEN: <condition>',
+    '=> <what it means>',
+    '```',
+    '## 1. Static Clicking',
+    '',
+    '### Static Clicking / Micro',
+    'WHEN: higher_avg_at_faster',
+    '=> First line',
+    '   continued on the next',
+    '',
+    'WHEN: regular_slower_than(80) AND pct_below_regular(50)',
+    '=> Second rule',
+    '',
+    '### Static Clicking / Wide',
+    'WHEN: (add your rule)',
+    '=> (add your interpretation)',
+    '',
+    '### Made Up / Thing',
+    'WHEN: banana(3)',
+    '=> Never shown as a finding'
+  ].join('\n');
+  const RC = parseCategoryRules(RULEDOC);
+  t('the format example is not a category', RC.some(e => e.cat === '<Category>'), false);
+  t('real entries are parsed', RC.length, 3);
+  t('two rules on the first entry', RC[0].rules.length, 2);
+  t('indented lines continue the interpretation', RC[0].rules[0].then, 'First line continued on the next');
+  t('AND splits into two conditions', RC[0].rules[1].terms.length, 2);
+  t('a condition argument is a number', RC[0].rules[1].terms[0].arg, 80);
+  t('template entries keep no rules', RC[1].rules.length, 0);
+  t('an unknown condition is flagged, not dropped', RC[2].rules[0].terms[0].ok, false);
+
+  // cm/360 is distance per turn: a BIGGER number is a SLOWER sensitivity.
+  // Getting this backwards would invert every interpretation in the file.
+  const LV = (cm, n, m) => ({cm, n, mean:m, sd:1, se:0.1,
+                             first:new Date(2026,0,1), last:new Date(2026,0,20)});
+  const AN = {levels:[LV(40,20,110), LV(55,50,100), LV(70,20,95)],
+              regular: LV(55,50,100), best: LV(40,20,110)};
+  t('faster_than: best 40cm is faster than 50', evalTerm({name:'faster_than', arg:50}, AN), true);
+  t('slower_than: best 40cm is not slower than 50', evalTerm({name:'slower_than', arg:50}, AN), false);
+  t('regular_slower_than: 55cm is not slower than 80', evalTerm({name:'regular_slower_than', arg:80}, AN), false);
+  t('higher_avg_at_faster', evalTerm({name:'higher_avg_at_faster'}, AN), true);
+  t('higher_avg_at_slower', evalTerm({name:'higher_avg_at_slower'}, AN), false);
+  t('pct_below_regular(4) catches 70cm at -5%', evalTerm({name:'pct_below_regular', arg:4}, AN), true);
+  t('pct_below_regular(20) does not', evalTerm({name:'pct_below_regular', arg:20}, AN), false);
+
+  // Thin levels and extremes are not comparisons.
+  const RN = [];
+  const mkr = (cm, i) => ({scen:'X', date:new Date(2026,0,1+i), score:100+i, cm360:cm,
+                           sensScale:'cm/360', dur:60, reset:false});
+  for(let i=0;i<12;i++) RN.push(mkr(50, i));
+  for(let i=0;i<12;i++) RN.push(mkr(90, i));   // extreme
+  for(let i=0;i<3;i++)  RN.push(mkr(60, i));   // too thin
+  t('levels under the minimum are dropped', cmLevels(RN, false).length, 1);
+  t('extremes are excluded by default', cmLevels(RN, false).some(l => l.cm === 90), false);
+  t('and included when asked', cmLevels(RN, true).length, 2);
+
+  // Two levels played months apart cannot be compared to each other.
+  const early = {cm:50, first:new Date(2026,0,1), last:new Date(2026,0,20)};
+  const late  = {cm:60, first:new Date(2026,3,1), last:new Date(2026,3,20)};
+  const together = {cm:60, first:new Date(2026,0,3), last:new Date(2026,0,18)};
+  t('separate stretches are disjoint', cmTimeOverlap(early, late).disjoint, true);
+  t('and the gap is measured in days', Math.round(cmTimeOverlap(early, late).gapDays), 71);
+  t('interleaved stretches are not', cmTimeOverlap(early, together).disjoint, false);
 
   const fails = R.filter(r => !r.ok);
   const fmtv = v => (typeof v === 'number' ? (Math.round(v * 1e6) / 1e6) : String(v));

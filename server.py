@@ -501,13 +501,27 @@ def port_in_use(port, host="127.0.0.1"):
         s.close()
 
 
-DIALOG_TITLE = "Select your KovaaK’s stats folder"
+DIALOG_TITLE = "Select your KovaaK\u2019s stats folder"
 
+# Long enough to go and find the folder, short enough that a dialog nobody can
+# see does not wedge the request for five minutes.
+DIALOG_TIMEOUT = 150
+
+
+# ---------------------------------------------------------------- folder picker
+# Three ways to open a folder chooser, tried in order. Windows gets the real
+# Explorer window; the others exist so this still works on a machine where that
+# is unavailable.
+#
+# The hard part is not opening the dialog - it is being SEEN. The server has no
+# window of its own, so anything it opens has nothing to sit in front of and
+# Windows drops it behind the browser. That looks exactly like "the button does
+# nothing", which is what it looked like. The fix is to own the dialog with a
+# hidden topmost window (see _ifd_owner_window).
 
 def _pick_tkinter():
-    """Nicest option when it exists - but plenty of Python builds ship without
-    tkinter (embeddable distributions, some vendored runtimes), and then this
-    raises ModuleNotFoundError rather than degrading."""
+    """Nicest when it exists, but plenty of Python builds ship without tkinter
+    (embeddable distributions, vendored runtimes) and then this raises."""
     import tkinter
     from tkinter import filedialog
     root = tkinter.Tk()
@@ -519,67 +533,195 @@ def _pick_tkinter():
         root.destroy()
 
 
+# --- Windows: IFileOpenDialog in folder-pick mode ---------------------------
+# This is the modern Explorer window - sidebar, address bar, search - not the
+# 1990s tree widget that FolderBrowserDialog still gives you on .NET Framework.
+# Straight ctypes, so it needs nothing installed.
+
+_CLSID_FileOpenDialog = "{DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7}"
+_IID_IFileOpenDialog = "{D57C7288-D4AD-4768-BE02-9D969532D960}"
+_COINIT_APARTMENTTHREADED = 0x2
+_CLSCTX_INPROC_SERVER = 1
+_SIGDN_FILESYSPATH = 0x80058000
+_FOS = 0x8 | 0x20 | 0x40 | 0x800   # NOCHANGEDIR | PICKFOLDERS | FORCEFILESYSTEM | PATHMUSTEXIST
+# vtable slots: IUnknown 0-2, IModalWindow::Show 3, then IFileDialog.
+_V_RELEASE, _V_SHOW = 2, 3
+_V_SET_OPTIONS, _V_GET_OPTIONS, _V_SET_TITLE, _V_GET_RESULT = 9, 10, 17, 20
+_V_SI_GET_DISPLAY_NAME = 5
+
+
+def _ifd_owner_window(user32):
+    """A 1x1 off-screen topmost window to own the dialog.
+
+    WS_EX_TOPMOST is what actually matters: a topmost window draws above normal
+    ones whatever has focus, so the dialog appears over the browser instead of
+    behind it. A background process cannot legitimately steal focus, so this is
+    the honest way to be visible."""
+    import ctypes
+    WS_POPUP = 0x80000000
+    WS_EX_TOPMOST, WS_EX_TOOLWINDOW = 0x8, 0x80
+    SW_SHOWNA, HWND_TOPMOST = 8, -1
+    SWP_FLAGS = 0x0002 | 0x0001 | 0x0010   # NOMOVE | NOSIZE | NOACTIVATE
+    user32.CreateWindowExW.restype = ctypes.c_void_p
+    user32.CreateWindowExW.argtypes = [
+        ctypes.c_uint32, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    hwnd = user32.CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, "STATIC",
+                                  None, WS_POPUP, -32000, -32000, 1, 1,
+                                  None, None, None, None)
+    if hwnd:
+        user32.ShowWindow(ctypes.c_void_p(hwnd), SW_SHOWNA)
+        user32.SetWindowPos(ctypes.c_void_p(hwnd), ctypes.c_void_p(HWND_TOPMOST),
+                            0, 0, 0, 0, SWP_FLAGS)
+        # Best effort - Windows usually refuses focus to a background process,
+        # but topmost has already done the job that matters.
+        try:
+            user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+        except Exception:
+            pass
+    return hwnd
+
+
+def _pick_ifiledialog():
+    if os.name != "nt":
+        return None
+    import ctypes
+
+    ole32, user32 = ctypes.windll.ole32, ctypes.windll.user32
+    LPVOID, HRESULT = ctypes.c_void_p, ctypes.c_long
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("a", ctypes.c_uint32), ("b", ctypes.c_uint16),
+                    ("c", ctypes.c_uint16), ("d", ctypes.c_ubyte * 8)]
+
+        def __init__(self, text):
+            super().__init__()
+            if ole32.CLSIDFromString(ctypes.c_wchar_p(text), ctypes.byref(self)) != 0:
+                raise OSError("bad GUID " + text)
+
+    def slot(ptr, index, *argtypes):
+        vtbl = ctypes.cast(ptr, ctypes.POINTER(LPVOID)).contents.value
+        addr = ctypes.cast(vtbl + index * ctypes.sizeof(LPVOID),
+                           ctypes.POINTER(LPVOID)).contents.value
+        return ctypes.WINFUNCTYPE(HRESULT, LPVOID, *argtypes)(addr)
+
+    ole32.CoInitializeEx(None, _COINIT_APARTMENTTHREADED)
+    owner = 0
+    try:
+        owner = _ifd_owner_window(user32) or 0
+        dlg = LPVOID()
+        hr = ole32.CoCreateInstance(ctypes.byref(GUID(_CLSID_FileOpenDialog)), None,
+                                    _CLSCTX_INPROC_SERVER,
+                                    ctypes.byref(GUID(_IID_IFileOpenDialog)),
+                                    ctypes.byref(dlg))
+        if hr != 0:
+            raise OSError("CoCreateInstance 0x%08X" % (hr & 0xFFFFFFFF))
+        try:
+            opts = ctypes.c_uint32()
+            slot(dlg, _V_GET_OPTIONS, ctypes.POINTER(ctypes.c_uint32))(dlg, ctypes.byref(opts))
+            slot(dlg, _V_SET_OPTIONS, ctypes.c_uint32)(dlg, opts.value | _FOS)
+            slot(dlg, _V_SET_TITLE, ctypes.c_wchar_p)(dlg, DIALOG_TITLE)
+            hr = slot(dlg, _V_SHOW, LPVOID)(dlg, owner)
+            if hr != 0:
+                return None          # 0x800704C7 is the user pressing Cancel
+            item = LPVOID()
+            slot(dlg, _V_GET_RESULT, ctypes.POINTER(LPVOID))(dlg, ctypes.byref(item))
+            try:
+                buf = ctypes.c_wchar_p()
+                slot(item, _V_SI_GET_DISPLAY_NAME, ctypes.c_uint32,
+                     ctypes.POINTER(ctypes.c_wchar_p))(item, _SIGDN_FILESYSPATH,
+                                                       ctypes.byref(buf))
+                path = buf.value
+                ole32.CoTaskMemFree(buf)
+                return path or None
+            finally:
+                slot(item, _V_RELEASE)(item)
+        finally:
+            slot(dlg, _V_RELEASE)(dlg)
+    finally:
+        if owner:
+            user32.DestroyWindow(ctypes.c_void_p(owner))
+        ole32.CoUninitialize()
+
+
 def _pick_powershell():
-    """Windows fallback. WinForms' FolderBrowserDialog is part of the OS, so it
-    works no matter how Python was built. -STA is required: the dialog is a COM
-    apartment-threaded control and silently fails without it."""
+    """Fallback. WinForms' FolderBrowserDialog is part of Windows itself, so it
+    works no matter how Python was built - but on .NET Framework it is the old
+    tree widget, which is why it is second. The owner Form is Show()n before
+    being used as owner: an unshown Form has no window handle, so TopMost has no
+    effect and the dialog lands behind whatever you were looking at."""
     if os.name != "nt":
         return None
     script = (
         "Add-Type -AssemblyName System.Windows.Forms;"
+        "Add-Type -AssemblyName System.Drawing;"
+        "$f = New-Object System.Windows.Forms.Form;"
+        "$f.TopMost = $true; $f.ShowInTaskbar = $false;"
+        "$f.StartPosition = 'Manual';"
+        "$f.Location = New-Object System.Drawing.Point(-3000,-3000);"
+        "$f.Size = New-Object System.Drawing.Size(1,1);"
+        "$f.Show(); $f.Activate();"
         "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
         "$d.Description = '%s';"
         "$d.ShowNewFolderButton = $false;"
-        "$f = New-Object System.Windows.Forms.Form;"
-        "$f.TopMost = $true;"
-        "if ($d.ShowDialog($f) -eq [System.Windows.Forms.DialogResult]::OK)"
+        "$r = $d.ShowDialog($f);"
+        "$f.Close();"
+        "if ($r -eq [System.Windows.Forms.DialogResult]::OK)"
         " { [Console]::Out.Write($d.SelectedPath) }"
     ) % DIALOG_TITLE.replace("'", "''")
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     out = subprocess.run(
         ["powershell", "-NoProfile", "-STA", "-Command", script],
-        capture_output=True, text=True, timeout=300, creationflags=flags)
+        capture_output=True, text=True, timeout=DIALOG_TIMEOUT, creationflags=flags)
     return (out.stdout or "").strip() or None
 
 
+PICKERS = [("explorer", _pick_ifiledialog),
+           ("powershell", _pick_powershell),
+           ("tkinter", _pick_tkinter)]
+
+
 def native_pick_folder():
-    """Open a real folder dialog on this machine. The server runs locally, so
+    """Open a real folder chooser on this machine. The server runs locally, so
     this is the closest thing to a normal 'Browse...' button - browsers refuse
     to hand a web page an absolute path.
 
-    Tries every method available rather than giving up on the first failure. If
-    they all fail the paste box is still there and works fine, so the message
-    says that instead of reading like a crash."""
-    result = {"folder": None, "opened": False, "tried": []}
+    Tries every method rather than giving up on the first failure. If none work
+    the paste box is still there and works fine, so the message says that
+    instead of reading like a crash."""
+    result = {"folder": None, "opened": False, "how": None, "tried": []}
 
     def run():
-        for name, fn in (("tkinter", _pick_tkinter), ("powershell", _pick_powershell)):
-            if fn is _pick_powershell and os.name != "nt":
-                result["tried"].append("%s: Windows only" % name)
-                continue
+        for name, fn in PICKERS:
             try:
                 folder = fn()
             except Exception as e:
                 result["tried"].append("%s: %s" % (name, e))
                 continue
-            # No exception means a dialog really did open. Empty means the user
-            # pressed Cancel, which is a choice, not a failure - stop here
-            # rather than popping a second dialog at them.
+            if folder is None and name in ("explorer", "powershell") and os.name != "nt":
+                result["tried"].append("%s: Windows only" % name)
+                continue
+            # No exception means a chooser really did open. Empty means Cancel,
+            # which is a decision - do not pop a second dialog at them.
             result["opened"] = True
+            result["how"] = name
             result["folder"] = folder
             return
 
     t = threading.Thread(target=run)
     t.start()
-    t.join(timeout=310)
+    t.join(timeout=DIALOG_TIMEOUT + 10)
     if t.is_alive():
-        return None, "Folder dialog timed out."
+        return None, ("The folder window is still open, or it opened behind "
+                      "another window. Finish with it, or paste the path below.")
     if result["opened"]:
+        if result["folder"]:
+            print("+ folder chosen via %s dialog" % result["how"])
         return result["folder"], None
     print("! no folder dialog available: %s" % "; ".join(result["tried"]))
-    return None, ("No folder dialog is available in this Python build "
-                  "(%s). Paste or drag the path into the box instead - it works "
-                  "exactly the same." % result["tried"][0].split(":")[0])
+    return None, ("No folder chooser could be opened on this PC. Paste or drag "
+                  "the path into the box below instead - it works exactly the same.")
 
 
 def watcher(index, interval):

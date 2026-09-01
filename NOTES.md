@@ -364,3 +364,55 @@ roughly 30 of its 39 scenarios were lost in the process and were never recovered
 which is why the bundled Viscose S2 Medium benchmark has only 9. Do not describe
 that file as repaired anywhere. The replacement is the raw xlsx/CSV export in
 `L:\Claude\Benchmarks\Viscose s2\`, queued for Batch 10.
+
+## The folder picker, and why it looked broken
+
+Opening a folder dialog was never the hard part. **Being seen was.**
+
+The server has no window of its own. A dialog it opens therefore has nothing to
+sit in front of, and Windows will not let a background process take the
+foreground, so the dialog went straight behind the browser. From the user's side
+the Browse button simply did nothing. The giveaway when debugging: the PowerShell
+call *blocked for the full timeout*, which means a window was up and waiting.
+
+Two things fix it, and both matter:
+
+1. **A hidden topmost owner window** (`_ifd_owner_window`) - 1x1, off-screen,
+   `WS_EX_TOPMOST | WS_EX_TOOLWINDOW`, shown with `SW_SHOWNA` so it has a real
+   handle. A topmost window draws above normal windows regardless of focus, so
+   the dialog it owns is visible without stealing focus, which a background
+   process cannot legitimately do anyway. Verified: `IsWindowVisible` true,
+   `WS_EX_TOPMOST` set, 960x540 at (0,0).
+2. **The page narrates the wait.** The request blocks while the dialog is open,
+   so the browser is the only place that can say "a window opened, look behind
+   this one". It escalates at 6s and 25s and offers the paste box.
+
+Picker order, all in `PICKERS`:
+
+    explorer     IFileOpenDialog + FOS_PICKFOLDERS, straight ctypes.
+                 The real Explorer window. No subprocess, no console flash.
+    powershell   WinForms FolderBrowserDialog. Part of Windows, so it survives
+                 any Python build - but on .NET Framework it is the old tree
+                 widget, hence second. Its owner Form must be Show()n first:
+                 an unshown Form has no handle and TopMost does nothing.
+    tkinter      Last. Absent from the Smoothie Python this project runs on.
+
+Cancelling is a decision, not a failure: a picker that returns without raising
+counts as "opened", so the loop stops instead of popping a second dialog. Only if
+every picker *raises* does the user get the "paste the path instead" message.
+
+`DIALOG_TIMEOUT` is 150s. It used to be 310, which meant a dialog nobody could
+see wedged the HTTP request for over five minutes.
+
+### Testing it without blocking
+
+A folder dialog blocks until someone clicks. To test unattended, find it by
+window class and close it:
+
+    hwnd = user32.FindWindowW("#32770", None)
+    user32.PostMessageW(hwnd, 0x0010, 0, 0)      # WM_CLOSE
+
+`Show()` then returns `0x800704C7` (ERROR_CANCELLED), which is the same path as
+a real Cancel. `scratchpad/test_picker.py` in the session notes does this for all
+four cases: picker direct, full `native_pick_folder`, every picker failing, and a
+picker succeeding.

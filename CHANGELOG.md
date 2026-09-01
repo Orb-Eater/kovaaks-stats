@@ -5,6 +5,43 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.2.1 - 2026-09-01
+
+**TL;DR - the Browse button now actually shows you a folder window. It was
+opening one the whole time, behind the browser, where nobody could see it.**
+
+First PATCH release under the new scheme: a fix between batches, so the last
+digit moves rather than the middle one.
+
+### The Browse button
+
+- **The dialog was opening and rendering behind the browser.** Measured: the
+  PowerShell call blocked for the full 12 seconds of a test, so a window really
+  was up and waiting - it just had nothing to sit in front of. The server has no
+  UI of its own, and Windows will not let a background process take focus, so
+  the window went straight to the back and the button looked dead.
+- **Fixed by owning the dialog with a hidden topmost window** - 1x1, off-screen,
+  `WS_EX_TOPMOST`. A topmost window draws above normal ones no matter what has
+  focus, which is the honest way for a background process to be seen. Verified
+  on screen: visible, topmost, 960x540, at (0,0), correct title.
+- **It is now the real Explorer window**, not the 1990s tree widget. Windows gets
+  `IFileOpenDialog` in folder-pick mode via ctypes - sidebar, address bar,
+  search, and no subprocess or console flash. PowerShell's `FolderBrowserDialog`
+  drops to second place (and its owner Form is now `Show()`n before being used
+  as an owner - an unshown Form has no window handle, so `TopMost` did nothing);
+  tkinter is last, and is absent from your Python anyway.
+- **The page says what is happening.** Browse disables itself and reports "A
+  folder window has opened", escalating after 6s to "check behind this window or
+  on your other monitor - try Alt+Tab", and after 25s to an offer to paste the
+  path instead. Cancelling now says so rather than looking like a failure.
+- **The request no longer wedges for five minutes.** The dialog timeout drops
+  from 310s to 150s, and a timeout returns a message that tells you where to
+  look instead of a bare error.
+
+Tested end to end through `POST /api/browse` with the dialog auto-cancelled:
+opens in 1.3s, cancel returns cleanly, all three pickers failing produces a
+readable message rather than a crash.
+
 ## v0.2.0 - 2026-09-01
 
 **TL;DR - a NeverMiss 0 is a real run again: you can see it, but it no longer

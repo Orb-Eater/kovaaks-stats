@@ -3,7 +3,7 @@
 Read this file first if you are picking the project up cold (new chat, new
 machine, or after a `/clear`). It is the map; everything else is detail.
 
-**Last updated:** 2026-09-01, after shipping v0.2.0.
+**Last updated:** 2026-09-01, after shipping v0.2.1.
 
 ---
 
@@ -128,7 +128,7 @@ any page with `?selftest=1` to run 36 numeric checks against fixed synthetic dat
 
 ---
 
-## The five things that will confuse you
+## The six things that will confuse you
 
 1. **KovaaK's CSV settings use a colon *and* a comma**: `Horiz Sens:,0.5`. The
    parser regex is `[:,]+`, not `[:,]`. Getting this wrong silently broke the
@@ -146,10 +146,13 @@ any page with `?selftest=1` to run 36 numeric checks against fixed synthetic dat
 5. **Killing a `cmd` wrapper does not kill the Python child.** Orphaned servers
    keep serving old code and will waste an hour of your life. Check with
    `Get-CimInstance Win32_Process -Filter "Name like 'python%'"`.
+6. **A dialog this server opens goes behind the browser** unless it is owned by
+   a topmost window — the server has no UI to sit in front of, and a background
+   process cannot take focus. That is why Browse looked dead for two releases.
 
 ---
 
-## Current state (v0.2.0)
+## Current state (v0.2.1)
 
 Working and verified on ~21,600 real runs:
 
@@ -170,6 +173,8 @@ Working and verified on ~21,600 real runs:
 - **Zero-score runs visible but never counted** — see `NOTES.md`, "Zero-score
   runs vs restarts".
 - Collapsible explanations, non-colliding chart end labels, `install.bat`.
+- **Folder picker is the real Explorer window** and is actually visible — see
+  `NOTES.md`, "The folder picker, and why it looked broken".
 
 Measured facts worth remembering:
 

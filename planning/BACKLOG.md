@@ -183,6 +183,28 @@ than guessed, because a ±2s window would have deleted 743 genuine NeverMiss run
       folder path) and `releases/` out; tagged `v0.2.0`
 - [ ] **Push to GitHub** — needs `gh auth login` from you; see below
 
+### v0.2.1 — folder picker fix (patch, between batches)
+Reported: *"windows still doesn't open up the file explorer to choose what
+kovaaks folder to pick."*
+
+**It was opening one the whole time — behind the browser.** The PowerShell call
+blocked for a full 12-second test, so a window really was up and waiting; it just
+had nothing to sit in front of, and Windows will not let a background process
+take focus.
+
+- [x] Own the dialog with a hidden 1x1 off-screen `WS_EX_TOPMOST` window.
+      Verified on screen: visible, topmost, 960x480 at (0,0), correct title.
+- [x] Use the **real Explorer window** — `IFileOpenDialog` + `FOS_PICKFOLDERS`
+      via ctypes, no subprocess. PowerShell's tree widget drops to second,
+      tkinter to third.
+- [x] Fix the PowerShell fallback too: its owner Form is `Show()`n first, since
+      an unshown Form has no handle and `TopMost` silently did nothing.
+- [x] Page narrates the wait — button disables, escalates at 6s ("check behind
+      this window") and 25s (offer the paste box); Cancel says so.
+- [x] Dialog timeout 310s → 150s, so an unseen dialog cannot wedge the request.
+- [x] Tested through `POST /api/browse` with the dialog auto-cancelled, plus the
+      all-pickers-fail and picker-succeeds paths.
+
 ---
 
 ## Batch 8 — the rest of the UI declutter → v0.3.0
@@ -288,22 +310,28 @@ Your new xlsx/CSV export replaces it.
 Every one of these ends in a bare **`=`**. Write your answer after it; I read them
 at the start of the next session. Answered ones move to *Answered* at the bottom.
 
-- **[?] GitHub push — needs you.** Everything is committed and tagged locally;
-  the only missing piece is authentication, which I must not do on your behalf.
-  Two commands, once:
+- **[?] GitHub push — needs you.** Everything is committed and tagged locally.
+  The only missing piece is authentication, which I must not do on your behalf.
+  Two commands, once, run in `L:\Claude\KovaaksStats`:
 
       gh auth login
       gh repo create kovaaks-stats --private --source=. --remote=origin --push
 
-  Run them in `L:\Claude\KovaaksStats`. Repo name `kovaaks-stats` — say if you
-  want something else, and whether I should push the tag too (`git push --tags`).
+  Then `git push --tags`. Repo name `kovaaks-stats` — say if you want another.
   =
 
-- **[?] Licence.** No LICENSE file yet, which is correct for a private repo but
-  matters the day it goes public: with no licence, nobody may legally use or fork
+- **[?] Licence.** No LICENSE file yet. Correct for a private repo, but it
+  matters the day it goes public: with no licence nobody may legally use or fork
   it. MIT (do what you like, keep the credit) is the usual choice for a tool like
   this. **Not** AGPL — that is Corporate Serf Dashboard's licence, not ours, and
   we have deliberately taken nothing from it.
+  =
+
+- **[?] Your dev stats folder is pointed at `C:\Users\Toms\Downloads\eden csv`**
+  (1500 runs), set at 05:25 on 2026-09-01 — the session log says that was you,
+  not me, so I left it alone. Is that deliberate (analysing someone else's CSVs)
+  or do you want it back on your own Steam folder? Frozen releases keep their own
+  config and are unaffected; every figure I have quoted came from the Steam folder.
   =
 
 - **[?] Viscose sheet columns.** Found `L:\Claude\Benchmarks\Viscose s2\`
@@ -338,11 +366,14 @@ at the start of the next session. Answered ones move to *Answered* at the bottom
 - **X.com handle** → `https://x.com/OrbEater_`, X logo, clickable. *v0.0.9.*
 - **Site width** → 1920 default, 2560 cap now, 5120 eventually. *Batch 9.*
 - **Versioning** → switch now, batch = MINOR bump. *v0.1.0.* Note: 0.1.0 → 0.2.0,
-  **not** 0.0.10 — those digits are independent numbers, not decimals.
+  **not** 0.0.10 — those digits are independent numbers, not decimals. A fix
+  between batches takes the last digit, which is what v0.2.1 is.
 - **Confetti** → PB after 5+ prior runs, 10s, blinking. *v0.0.9.*
 - **Run resets** → detectable without score; excluded from the graph, counted in
   the session panel, RNG warning above 5. *v0.1.0.*
 - **NeverMiss zeros** → keep visible, keep out of the %. *v0.2.0.*
+- **Folder picker** → it was opening behind the browser; now a topmost-owned real
+  Explorer window. *v0.2.1.*
 - **ADHD mode wording** → "START FOCUSING ON KOVAAK'S AND STOP BEING ON TIKTOK".
   *Batch 13.*
 - **Viscose raw sheet** → xlsx + CSV received (unfiltered draft, "matty" rank,

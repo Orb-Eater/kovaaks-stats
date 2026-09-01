@@ -2449,15 +2449,31 @@ function wireFolderSetup(){
     if(btn){ useFolder(btn.dataset.folder); return; }
     if(e.target.id === 'folderUse'){ useFolder($('#folderInput').value); return; }
     if(e.target.id === 'folderBrowse'){
-      $('#folderStatus').textContent = 'Opening folder dialog — check for a new window…';
+      // The request blocks for as long as the dialog is open, and the dialog
+      // belongs to the server process rather than the browser — so if anything
+      // does end up covering it, the page is the only place that can say so.
+      // Escalate the wording rather than leaving a button that looks dead.
+      const btnEl = e.target;
+      btnEl.disabled = true;
+      $('#folderStatus').innerHTML = '<b>A folder window has opened.</b> ' +
+        'Pick your <code>stats</code> folder there.';
+      const nudges = [
+        [6000, 'Still waiting. If you cannot see it, check behind this window or on your other monitor — try Alt+Tab.'],
+        [25000, 'Nothing picked yet. You can cancel that window and paste the path in the box below instead — it works exactly the same.']
+      ].map(([ms, msg]) => setTimeout(() => {
+        $('#folderStatus').innerHTML = '<b>A folder window is open.</b> ' + esc(msg);
+      }, ms));
+      const done = () => { nudges.forEach(clearTimeout); btnEl.disabled = false; };
       try{
         const r = await fetch('api/browse', {method:'POST'});
         const j = await r.json();
+        done();
         if(j.error){ $('#folderStatus').textContent = j.error; return; }
-        if(!j.folder){ $('#folderStatus').textContent = 'Nothing selected.'; return; }
+        if(!j.folder){ $('#folderStatus').textContent = 'Nothing selected — the window was cancelled.'; return; }
         $('#folderInput').value = j.folder;
         useFolder(j.folder);
       }catch(err){
+        done();
         $('#folderStatus').textContent = 'Browse failed: ' + err;
       }
     }

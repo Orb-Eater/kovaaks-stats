@@ -1,6 +1,6 @@
-# KovaaK's stats
+KovaaK's stats app
 
-Written by the one and only Orb Eater.
+## Written by the one and only Orb Eater.
 Yes, not AI. (Talking about this reqdme text not everything else) Every line of code and design is by Claude with my input. Read faq Line 54.
 
 "why another KovaaK's app, we already have over 5 different ones ugh"
@@ -51,7 +51,7 @@ This is a lot yes.
 however, we can still se early signs. These are marked on the scenario itself so you know you can't fully trust the calculation. You can use it as a ball park.
 
 
-**short faq**
+# **short faq**
 _"Orb, when did tou become a coder??"_
 never have been. This is all with the help of Claude Opus 5. I have no coding experience, only tons of ideas in my head that I wouldn't be able to put together without the use of Claude. (or paying someone thousands of dollars to implement every little thing I want)
 
@@ -62,9 +62,9 @@ Until everything is checked properly by a human, this could all be pseudo scienc
 
 Thanks for your time.
 
--------
 Everything below here is claudes doing. left it since ion wanna write everything myself yet. still lots work even when an AI is doing the hard part. Some stuff are outdated and wrong, so take this next part with some sand. Every feature you should be able to view on the page itself.
 
+-----
 
 A local statistics app for KovaaK's aim trainer. It reads your `stats` folder and
 tells you whether you are actually improving — **and tells you when it cannot
@@ -75,7 +75,6 @@ tell**, which is most of the time on most scenarios.
 Everything runs on your own machine. No account, and your run data is never
 uploaded anywhere — it is read from your stats folder and stays there.
 
----
 
 ## Why it exists
 

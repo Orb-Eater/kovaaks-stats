@@ -46,17 +46,26 @@ If you point it at the game/install folder rather than `stats`, it probes
 python release.py 0.0.1
 ```
 
-Copies `server.py`, `start.bat` and `app/` into `releases/v0.0.1/`, gives it its
-own port (8801, 8802, … per release) and its own `config.json`, and writes a
-`VERSION` file. From then on it is fully independent — `cache/`, `logs/` and
-config are per-install, and nothing is shared with the working copy.
+Copies the shipping files into `releases/v0.0.1/`, gives it **a port derived
+from the version string** (`20000 + crc32(version) % 40000`) and its own
+`config.json`, and writes a `VERSION` file. From then on it is fully independent
+— `cache/`, `logs/` and config are per-install, and nothing is shared with the
+working copy.
+
+The port is derived rather than handed out because the old scheme gave the
+*first* release in any copy of this folder 8801, so two builds on two drives
+collided on one origin and shared a cache. See "Release isolation" below.
 
 So: keep using `releases/v0.0.1/start.bat` day to day while editing the working
 copy freely. Both can run at the same time (different ports). Verified: an edit
-to `app/core.js` in the working copy shows on :8765 and *not* on :8801.
+to `app/core.js` in the working copy shows on :8765 and *not* on the release's
+port.
 
-The header shows which one you're looking at — `dev build · port 8765` vs
-`v0.0.1 · port 8801`. Releases inherit your stats-folder choice so they start ready.
+The footer shows which one you're looking at — `dev build · port 8765` vs
+`v0.0.1 · port …`. **A release starts with no stats folder set**, deliberately:
+inheriting the working copy's path baked one person's folder into a build meant
+for anyone, and silently overrode a folder the user had already chosen for that
+release.
 
 ## Layout
 
@@ -543,18 +552,50 @@ advertised there.
 
 ## Notifications are an overlay, not markup
 
-`toast(key, html, opts)` in `core.js`, rendering into `#toastLayer`, which is
-**created on demand** rather than living in the markup - so index, simple and the
-effects lab all get it without three copies of one div.
+`toast(key, html, opts)` in `core.js`, rendering into one of **two** layers,
+each **created on demand** rather than living in the markup - so index, simple
+and the effects lab all get them without three copies of one div.
 
-    key    one live card per key; firing again replaces rather than stacks
-    kind   warn | info | good | celebrate
-    ms     auto-dismiss, 0 = stays until dismissed
-    once   dismissing silences that key for the rest of the session
+    key     one live card per key; firing again replaces rather than stacks
+    kind    warn | info | good | celebrate
+    ms      auto-dismiss, 0 = stays until dismissed
+    once    dismissing silences that key for the rest of the session
+    center  render into #toastCenter instead of #toastLayer
 
-Everything goes through it: break reminders, the idle nudge, the low-active
-popup, the restart-spam warning, the log-every-run suggestion, the live
-"just played" note and every celebration tier.
+`#toastLayer` is the bottom-right corner. `#toastCenter` is the middle of the
+viewport, and **only celebrations use it**. The distinction is what the
+notification is for: a corner notice is something you glance at when you get
+round to it, a PB is the one event worth putting in front of your face. Both
+layers are `position:fixed`, so "the middle" means the middle of what you are
+looking at right now, whatever the page is scrolled to - not the middle of the
+document.
+
+Because a key can now live in either layer, `findToast(key)` searches both, and
+the replace-and-dismiss paths go through it rather than through
+`document.getElementById`. Firing a key that is already up in the other layer
+still replaces rather than stacking.
+
+Everything goes through `toast()`: break reminders, the idle nudge, the
+low-active popup, the restart-spam warning, the log-every-run suggestion and
+every celebration tier.
+
+### What earns confetti (v0.7.1)
+
+Full-screen confetti fires for a **scenario PB only** - `a.kind === 'pb' &&
+a.scope === 'scenario'`. A best at one sensitivity is a real result and still
+gets a centred card (`★ New 52cm PB!`), but it gets no confetti and no `.big`
+class. You have as many cm-scoped bests as you have sensitivities; if each one
+threw confetti across the whole window, whole-window confetti would stop meaning
+anything. The lab's `pbcm` button is labelled *"no confetti - by design"* so this
+does not get "fixed" by someone reading it as a bug.
+
+### There is no "just played" notification (v0.7.1)
+
+There used to be a `toast('live', 'Just played: ...')` on every completed run.
+It is gone. The session panel already carries the scenario, the sensitivity and
+the score, it is on screen the whole time, and it does not have to be dismissed.
+`showLiveNote()` now only calls `renderSessionPanel()`. A notification that
+duplicates something already visible is just something else to close.
 
 They used to be `<div>`s in the page flow (`#liveNote`, `#breakAlert`,
 `#lowActiveAlert`, `#celebrate`). Those are gone from all three pages. The
@@ -717,3 +758,92 @@ file, which quietly labelled everything Micro.
 > Corporate Serf Dashboard has a sensitivity-vs-score plot. It is **AGPL-3.0**.
 > Nothing has been taken from it - only the public description of the feature was
 > read. Everything here is built on this project's own cm machinery.
+
+## Chart hover: nearest-neighbour, not hit targets
+
+Hovering any run on a scenario chart gives you the run behind it. A native
+`title=` would have been free, and was rejected for two reasons that are the
+whole point of the feature: it waits about a second before appearing, and it
+only fires when the pointer is genuinely over a 2px circle.
+
+The dots stay 2px. Growing them to a reliably clickable size would turn a
+200-run chart into a smear, which loses more than the hover gains. So the
+**grab radius lives in the pointer handler instead**, where it can be far
+larger than the mark it belongs to:
+
+    SPARK_GRAB_PX   26    how close is close enough, in screen pixels
+    SPARK_DELAY_MS  45    vs roughly 1000ms for a browser tooltip
+
+`onSparkMove` is one `mousemove` listener on `document`, not one per chart. It
+finds the enclosing `svg.spark`, converts the cursor into viewBox units, and
+takes the nearest registered point inside the radius:
+
+    k  = d.w / svg.getBoundingClientRect().width      // viewBox units per screen px
+    vx = (e.clientX - box.left) * k
+
+That `k` is the part that is easy to get wrong. The SVG is scaled by CSS, so a
+radius written in viewBox units would mean a different physical distance on a
+full-width card than on a narrow one. Converting *pixels into viewBox units* per
+chart keeps the grab feeling identical at every card size.
+
+**Where the point data lives.** `spark()` builds a plain array while it emits
+the circles and hands it to `sparkRegister()`, which returns an id that becomes
+the SVG's `id`. The map is keyed by that id. It is deliberately not
+`data-` attributes: a 200-run chart would carry ~15KB of JSON in its markup,
+times however many cards are open. Charts are re-rendered wholesale so old ids
+simply stop existing; rather than depending on a frame callback to notice -
+which never fires in a background tab - the map is capped at 120 entries and
+insertion order means the oldest are the dead ones.
+
+Two details that came out of testing:
+
+- The highlight ring (`.sparkhl`) is appended **last** in the SVG. Emitted
+  first, it drew behind the data and was invisible on any dense chart.
+- `mouseleave` is bound **without** capture. With capture it fires every time
+  the pointer crosses from one SVG child to another, and the tooltip blinks
+  continuously as you move along a line.
+
+The panel is placed clear of the cursor and **flips rather than clips** near an
+edge, so a hover at the bottom of the window opens upward.
+
+## Sorting by how well measured a scenario is
+
+The "Most data (tightest measurement)" sort is deliberately not a run count.
+
+What decides whether a scenario can show you progress is **the width of its 95%
+interval** - so the sort key is `CI_Z * typical.se`, ascending. Two hundred runs
+spread over six sensitivities can measure less than forty runs at one, because
+the unit of analysis is the (scenario x cm-cluster) cell and each cell is only
+ever compared against itself ([CALCULATIONS.md 3](CALCULATIONS.md)). A sort by `st.n` would put the
+first scenario above the second and be wrong about the only thing the sort is
+for.
+
+Rows with no interval at all cannot be ordered against ones that have one, so
+they fall to the bottom, ordered by paired runs (`nMin`, then `st.n`) - closest
+to being measurable first. The page carries a caveat saying what the order
+means when this sort is active, because "most data" invites being read as "most
+played".
+
+## Why a comparison is missing, said out loud
+
+`cmpWhy(v, key, minN)` explains a dash in the "vs baseline" column. It exists
+because a card could previously show three dashes and no warning, which reads
+like a broken program rather than an honest one - this was reported as a bug and
+was not one.
+
+It distinguishes three cases, because they need different things from you:
+
+1. **Not enough runs.** Names the requirement (15 ceiling / 20 floor / 10
+   typical, per side), then the actual counts in the fullest band: *"has 10 in
+   this window and 16 in the period before it"*. When the runs span more than
+   one band it adds the number of bands **and the reason it matters** - each
+   band is only ever compared against itself, otherwise moving your sens between
+   the two periods would show up as a change in skill.
+2. **No earlier period at all** - there is simply nothing to compare against yet.
+3. **The sensitivity you play now was not played before.** Different from (2):
+   you have history, just not at this cm.
+
+The text is used twice, so it deliberately does **not** start with the row name:
+the dash's tooltip prefixes `label + ' - '` itself, and the drawer caveat lists
+the rows. An earlier version returned `"Ceiling (p90) needs at least..."` and
+the tooltip read *"Ceiling (p90) - Ceiling (p90) needs at least 15 runs"*.

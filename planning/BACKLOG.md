@@ -341,6 +341,38 @@ is prose rather than a condition and is reported as not evaluated). Everything
 else is empty and says so in the picker. The conditions available are documented
 in a table at the top of the file.
 
+### v0.7.1 — six fixes between batches
+
+Reported 2026-09-01 with a screenshot of the `cloverRawControl Viscose 50cm`
+card. All six are done and verified in the browser.
+
+- [x] **Celebrations moved to the centre of the viewport.** Second toast layer
+      (`#toastCenter`), `position:fixed`, so it is the centre of what you are
+      looking at rather than of the document. — *v0.7.1*
+- [x] **Confetti only for a scenario PB.** A cm-scoped best still gets a centred
+      card, without confetti — you have as many of those as you have
+      sensitivities. — *v0.7.1*
+- [x] **"Just played" notification removed.** The session panel already shows
+      the scenario, the cm and the score, permanently and without needing to be
+      dismissed. — *v0.7.1*
+- [x] **Sort: "Most data (tightest measurement)".** Sorts by the width of the
+      95% interval, not by run count — 200 runs over six sensitivities can
+      measure less than 40 at one. Unmeasurable rows fall to the bottom. — *v0.7.1*
+- [x] **A missing "vs baseline" now says why.** Was reported as *"fault in
+      program?"* and was not one: 16 runs split over 7 cm bands, with only 10
+      paired in the fullest band, cannot fill a 15-per-side ceiling comparison.
+      The defect was the silence. The dash now carries the reason on hover, the
+      card carries a ⚠, and the drawer lists which figures are affected. — *v0.7.1*
+- [x] **Hover any dot on a chart** for score, date, time, cm, duration, run
+      number, PB-at-the-time and comparison to typical. Nearest-neighbour inside
+      a ~26px grab radius (the marks stay 2px), ~45ms rather than a second. — *v0.7.1*
+- [x] **`HANDOFF.md` is no longer published.** Added to `.gitignore` and
+      untracked. It stays on disk, stays current, and stops going to GitHub.
+      **Note:** it is already present in the history pushed to `origin/master`
+      — untracking stops *future* updates, it does not erase the copy already
+      there. Removing that would need a history rewrite and a force-push, which
+      has not been done. — *v0.7.1*
+
 ## Batch 11 — baseline page, benchmarks and imports  ← **next**
 
 Scenario list is a plain document in `planning/baseline/scenarios.md`.

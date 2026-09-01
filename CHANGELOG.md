@@ -5,6 +5,81 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.7.1 - 2026-09-01
+
+**TL;DR - six fixes you asked for. A celebration now lands in the middle of the
+screen instead of the corner, confetti is reserved for beating a scenario
+outright, the "just played" pop-up is gone because the session panel already
+said it, scenarios can be sorted by how well measured they are, a missing
+baseline comparison now tells you why it is missing, and every dot on a chart
+can be hovered for the run behind it.**
+
+### Notifications
+
+- **A celebration appears in the centre of the viewport**, not the bottom-right
+  corner. Corner notices are things you glance at when you get round to them; a
+  PB is the one event worth putting in front of your face. Both layers are
+  `position:fixed`, so "the centre" means the centre of what you are looking at,
+  wherever the page happens to be scrolled.
+- **Confetti is now only for a scenario PB.** A best-at-this-sensitivity is real
+  and still says so, but you have as many of those as you have sensitivities -
+  if every one of them threw confetti across the whole window, whole-window
+  confetti would stop meaning anything.
+- **The "just played" pop-up is gone.** The session panel already carries the
+  scenario, the sensitivity and the score, it is on screen the whole time, and
+  it does not have to be dismissed. A notification duplicating something already
+  visible is just something else to close.
+
+### Sorting by how well measured a scenario is
+
+- **New sort: "Most data (tightest measurement)"**, which is deliberately *not*
+  "most runs". What decides whether a scenario can show you progress is the
+  width of its 95% interval - and 200 runs spread over six sensitivities can
+  measure less than 40 runs at one, because each sensitivity is only ever
+  compared against itself. Rows with no interval at all fall to the bottom,
+  ordered by paired runs, so the scenarios that can actually tell you something
+  sit at the top and the ones that cannot sit at the bottom.
+
+### A missing comparison now says why
+
+- **A dash in the "vs baseline" column is no longer silent.** Hover it and it
+  names the shortfall: how many runs each side of the comparison needs, how many
+  your fullest sensitivity band actually has on each side, and - when it
+  applies - how many bands your runs are split across, with the reason that
+  matters: *each band is only ever compared against itself, otherwise moving
+  your sens between the two periods would show up as a change in skill.*
+- **The card gets a ⚠ for it too**, and the drawer says "2 of the three figures
+  have no baseline comparison". Previously a card could show three dashes and no
+  warning at all, which read like a bug.
+- Two other cases are told apart rather than lumped in: there being **no earlier
+  period at all**, and the sensitivity you play now **not having been played in
+  the period before**. They need different things from you.
+
+### Hover any run on a chart
+
+- **Every dot on a scenario chart is hoverable**: score, date and time, the
+  cm/360 and duration, which run of how many it was, whether it was a PB at the
+  time, and how it compares to that chart's typical score. Zero-score runs say
+  what they are and that they are kept out of every average.
+- **You aim at a region, not at a dot.** The marks stay 2px - making them big
+  enough to hit reliably would turn a 200-run chart into a smear - so the
+  matching is nearest-neighbour inside a ~26px grab radius, done in the pointer
+  handler where it can be far larger than the mark it belongs to. The point
+  being read is ringed so there is no ambiguity about which one you got.
+- **It appears in ~45ms**, against roughly a second for a browser's own
+  `title=` tooltip, and follows the cursor instantly once up. It flips rather
+  than clips at the edges of the window.
+
+### Also
+
+- `HANDOFF.md` is now in `.gitignore`. It is the working notebook for this
+  project and is written for one reader; it stays on disk and stays current, and
+  it stops being published. (It was already excluded from release zips.)
+- `?selftest` is now **85 checks**, up from 72 - the new ones cover the
+  missing-comparison reasons, the confetti rule and the data sort.
+
+---
+
 ## v0.7.0 - 2026-09-01
 
 **TL;DR - Batch 10. Every scenario you have played at more than one sensitivity

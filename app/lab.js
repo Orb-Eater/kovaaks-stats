@@ -151,7 +151,9 @@ const FIRE = {
   },
   live: () => {
     // The whole chain: a run lands, the best achievement in it celebrates, the
-    // session panel updates and the break counter ticks.
+    // session panel updates and the break counter ticks. There is deliberately
+    // no "just played" pop-up any more - the session panel already says it, and
+    // it does not have to be dismissed.
     const fresh = {scen: SCEN, date: new Date(), score: 4330, cm360: 52,
                    sensScale: 'cm/360', dur: 58, reset: false};
     RUNS.push(fresh);

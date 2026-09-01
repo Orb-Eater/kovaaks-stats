@@ -1230,7 +1230,22 @@ function render(){
     s += Math.min(15, r.st.cv / 2);
     return s;
   };
+  // "Most data" is deliberately not "most runs". What decides whether a scenario
+  // can show you progress is how tight its interval is, and that depends on how
+  // noisy the scenario is for you and on how the runs split across sensitivity
+  // bands - not on the raw count. 200 runs spread over six sensitivities can
+  // measure less than 40 runs at one. Rows with no interval at all sort to the
+  // bottom, ordered by paired runs, because that is the honest ranking of
+  // "closest to being measurable".
+  const ciHalf = r => (r.typical && r.typical.se != null) ? TUNING.CI_Z * r.typical.se : null;
   rows.sort((a,b) => {
+    if(sortBy==='data'){
+      const ca = ciHalf(a), cb = ciHalf(b);
+      if(ca != null && cb != null) return ca - cb;
+      if(ca != null) return -1;
+      if(cb != null) return 1;
+      return (b.nMin - a.nMin) || (b.st.n - a.st.n);
+    }
     if(sortBy==='runs') return b.st.n - a.st.n;
     if(sortBy==='recent') return lastAt(b) - lastAt(a);
     if(sortBy==='name') return a.scen.localeCompare(b.scen);
@@ -1376,6 +1391,7 @@ function render(){
   if(wEff != null && Math.abs(wEff) >= 1) caveats.push('Your first 3 runs of a session average ' +
     (wEff>=0?'+':'') + wEff.toFixed(1) + '% vs later runs' +
     (excludeWarmup ? ' — those runs are being excluded.' : ' — consider enabling "Skip warmup".'));
+  if(sortBy === 'data') caveats.push('Sorted by how precisely each scenario can measure a change (the width of its 95% interval), not by how good you are at it or how much you played it. Scenarios at the bottom are not worse \u2014 they are thinner, or their runs are split across more sensitivities.');
   if(sortBy === 'needplay') caveats.push('Recommended-to-play partly selects scenarios that currently look bad, so they will tend to look better next time regardless of what you do (regression to the mean). Do not read that rebound as proof the recommender worked.');
   // Kept behind a toggle: it is worth reading once and then permanently in the
   // way. The button only appears when there is actually something to say.
@@ -1477,16 +1493,30 @@ function render(){
     // Pinned to a cm you have not played inside this window - say so rather
     // than quietly showing everything and letting the chip look broken.
     const pinMissed = pinCm != null && v === r;
-    const row = (label, value, minN, est) =>
-      '<tr><td>'+label+'</td><td>'+(value==null ? '<span style="color:var(--ink3)">n&lt;'+minN+'</span>' : fmt(value))+'</td>'+
-      '<td>'+estSpan(est)+'</td></tr>';
+    // Checked up front so the warning symbol can mention them: a card quietly
+    // showing two dashes and no warning reads as a broken app.
+    const missingCmp = [
+      ['Ceiling (p90)', 'ceiling', TUNING.CEILING_MIN_N],
+      ['Typical (trimmed)', 'typical', TUNING.TYPICAL_MIN_N],
+      ['Floor (p10)', 'floor', TUNING.FLOOR_MIN_N]
+    ].filter(h => { const e = v[h[1]]; return !e || e.pct == null; })
+     .map(h => ({label: h[0], key: h[1], why: cmpWhy(v, h[1], h[2])}));
+    const whyFor = key => { const m = missingCmp.find(x => x.key === key); return m ? m.why : null; };
+    const row = (label, value, minN, est, key) => {
+      const why = whyFor(key);
+      return '<tr><td>'+label+'</td><td>'+
+        (value==null
+          ? '<span class="nodata" title="'+esc('Withheld until there are '+minN+' runs: below that this figure moves with the sample size rather than with your play.')+'">n&lt;'+minN+'</span>'
+          : fmt(value))+'</td>'+
+        '<td>'+(why ? '<span class="nocmp" title="'+esc(label+' \u2014 '+why)+'">\u2014</span>' : estSpan(est))+'</td></tr>';
+    };
     // One yellow warning symbol per card, opening the drawer, instead of two
     // 12px icons carrying their explanation in hover text nobody can read.
     const moreNeeded = Math.max(0, v.nRequired - v.nMin);
     const windowSpanDays = Math.max(1, (windowEnd - windowStart)/864e5);
     const ratePerDay = v.st.n / windowSpanDays;
     const etaDays = (!v.powered && ratePerDay > 0) ? Math.ceil(moreNeeded/ratePerDay) : null;
-    const caveats = scenCaveats(v, {moreNeeded, etaDays, windowEnd});
+    const caveats = scenCaveats(v, {moreNeeded, etaDays, windowEnd, missingCmp});
     // Stashed for the drawer: the click handler runs long after this render,
     // and recomputing it there would mean re-deriving the whole row.
     SCEN_CAVEATS[key] = {title: r.scen, html: caveatsHtml(caveats)};
@@ -1532,9 +1562,9 @@ function render(){
       '<div class="scenbody"><div class="scennum">'+
       '<table><tr><th>metric</th><th>value</th><th>vs baseline (95% CI)</th></tr>'+
       '<tr><td>PB <span class="recordtag">record</span></td><td>'+fmt(v.st.record)+pbCmTag(v.rs)+'</td><td><span style="color:var(--ink3)">not a measurement</span></td></tr>'+
-      row('Ceiling (p90)', v.st.ceiling, TUNING.CEILING_MIN_N, v.ceiling)+
-      row('Typical (trimmed)', v.st.typical, TUNING.TYPICAL_MIN_N, v.typical)+
-      row('Floor (p10)', v.st.floor, TUNING.FLOOR_MIN_N, v.floor)+
+      row('Ceiling (p90)', v.st.ceiling, TUNING.CEILING_MIN_N, v.ceiling, 'ceiling')+
+      row('Typical (trimmed)', v.st.typical, TUNING.TYPICAL_MIN_N, v.typical, 'typical')+
+      row('Floor (p10)', v.st.floor, TUNING.FLOOR_MIN_N, v.floor, 'floor')+
       '</table>'+
       staleNote(v, windowEnd) +
       '</div><div class="scenchart">'+
@@ -1602,6 +1632,18 @@ function scenCaveats(v, ctx){
          'interval on purpose. Play it across a few separate days and they become real comparisons.'
     });
   }
+  const missing = ctx.missingCmp || [];
+  if(missing.length){
+    out.push({
+      t: missing.length === 3
+        ? 'None of the three figures can be compared to a baseline yet'
+        : missing.length + ' of the three figures have no baseline comparison',
+      b: missing.map(m => '<b>' + m.label + '</b> \u2014 ' + m.why).join('<br><br>') +
+         '<br><br>A dash in that column is not a zero and not a bug: it is the app declining to ' +
+         'print a number it cannot stand behind. The value on the left is still real \u2014 what is ' +
+         'missing is a trustworthy <i>change</i> against the period before this window.'
+    });
+  }
   const staleDays = Math.floor((ctx.windowEnd - v.rs[v.rs.length-1].date) / 864e5);
   if(staleDays >= TUNING.STALE_SOFT_DAYS){
     out.push({
@@ -1620,6 +1662,40 @@ function scenCaveats(v, ctx){
     });
   }
   return out;
+}
+
+// Why a "vs baseline" cell is a dash, in words.
+//
+// A bare em-dash is honest and useless: it says "not measured" without saying
+// what would fix it, and it looks identical whether the reason is "you have not
+// played this enough yet" or "you have never played it at a sensitivity you
+// also played earlier". Those need completely different things from you, so
+// the card has to tell them apart.
+//
+// The usual cause is not a shortage of runs but the cm/360 split: runs are
+// compared band against band on purpose (STATISTICS.md 3.3), so 16 runs across
+// seven bands can leave every band too thin even though the card says 16.
+function cmpWhy(v, key, minN){
+  const cs = v.cells || [];
+  const paired = cs.filter(c => c.w.n > 0 && c.b.n > 0);
+  const bands = cs.length;
+  const split = bands > 1
+    ? ' These ' + v.st.n + ' runs are split across ' + bands + ' sensitivity bands, and each band is ' +
+      'only ever compared against itself \u2014 otherwise moving your sens between the two periods would ' +
+      'show up as a change in skill.'
+    : '';
+  if(!paired.length){
+    return (cs.some(c => c.b.n > 0)
+      ? 'Nothing in this window was played at a sensitivity you also played in the period before it, ' +
+        'so there is no like-for-like comparison to make.'
+      : 'There are no runs in the period before this window, so there is nothing to compare against yet.') + split;
+  }
+  const w = Math.max(...paired.map(c => c.w.n));
+  const b = Math.max(...paired.map(c => c.b.n));
+  // No label in here: both callers already name the row, and printing it twice
+  // read as "Ceiling (p90) - Ceiling (p90) needs at least 15 runs...".
+  return 'Needs at least ' + minN + ' runs on each side of the comparison. Your fullest ' +
+    'sensitivity band has ' + w + ' in this window and ' + b + ' in the period before it.' + split;
 }
 
 function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -2697,15 +2773,42 @@ function ensureToastLayer(){
   return l;
 }
 
+// A second layer, in the middle of the viewport. Corner notices are things you
+// glance at when you get round to it; a PB is the one event worth putting in
+// front of your face. Both layers are position:fixed, so "the middle" means the
+// middle of what you are looking at right now, whatever the page is scrolled to.
+function ensureToastCenter(){
+  let l = document.getElementById('toastCenter');
+  if(!l){
+    l = document.createElement('div');
+    l.id = 'toastCenter';
+    l.className = 'toastcenter';
+    l.setAttribute('role', 'status');
+    l.setAttribute('aria-live', 'polite');
+    document.body.appendChild(l);
+  }
+  return l;
+}
+
+// Both layers, so a key can be found wherever it was put.
+function findToast(key){
+  const sel = '[data-key="' + CSS.escape(key) + '"]';
+  return document.querySelector('#toastLayer ' + sel) ||
+         document.querySelector('#toastCenter ' + sel);
+}
+
 // key   - one live toast per key; firing the same key again replaces it rather
 //         than stacking six copies of "take a break".
 // opts  - {kind:'warn'|'info'|'good'|'celebrate', ms:auto-dismiss (0 = sticky),
-//          once:true = dismissing it silences that key for the session}
+//          once:true = dismissing it silences that key for the session,
+//          center:true = middle of the viewport instead of the corner}
 function toast(key, html, opts){
   opts = opts || {};
   if(opts.once && TOAST_DISMISSED.has(key)) return null;
-  const layer = ensureToastLayer();
-  const old = layer.querySelector('[data-key="' + CSS.escape(key) + '"]');
+  const layer = opts.center ? ensureToastCenter() : ensureToastLayer();
+  // Removed from wherever it currently is, not just from the layer it is about
+  // to go into - otherwise the same key could end up living in both.
+  const old = findToast(key);
   if(old) old.remove();
   const el = document.createElement('div');
   el.className = 'toast toast-' + (opts.kind || 'info');
@@ -2730,8 +2833,7 @@ function closeToast(el){
   setTimeout(() => el.remove(), 260);
 }
 function dismissToast(key){
-  const l = document.getElementById('toastLayer');
-  if(l) closeToast(l.querySelector('[data-key="' + CSS.escape(key) + '"]'));
+  closeToast(findToast(key));
 }
 
 function achievementText(a){
@@ -2750,18 +2852,21 @@ function achievementText(a){
 
 function celebrate(a){
   const t = achievementText(a);
-  const full = a.kind === 'pb';
+  // Confetti is reserved for beating the scenario outright. A best-at-this-
+  // sensitivity is real and worth saying, but there are as many of those as you
+  // have sensitivities - if every one of them threw confetti across the whole
+  // window, the whole-window confetti would stop meaning anything.
+  const scenPb = a.kind === 'pb' && a.scope === 'scenario';
   toast('celebrate',
-    '<div class="celebrate' + (full ? ' big' : '') + '">' +
+    '<div class="celebrate' + (scenPb ? ' big' : '') + '">' +
       '<div class="celebrate-in">' +
-        '<div class="celebrate-t">' + (full ? '🎉 ' : (a.kind === 'first' ? '⭐ ' : '★ ')) + t.title + '</div>' +
+        '<div class="celebrate-t">' + (scenPb ? '🎉 ' : (a.kind === 'first' ? '⭐ ' : '★ ')) + t.title + '</div>' +
         '<div class="celebrate-s">' + t.sub + '</div>' +
       '</div>' +
     '</div>',
-    {kind:'celebrate', ms: TUNING.CELEBRATE_MS});
+    {kind:'celebrate', ms: TUNING.CELEBRATE_MS, center: true});
   logMsg('achievement', {kind:a.kind, scope:a.scope, scen:a.scen, score:a.score});
-  // A PB is the one thing worth interrupting the whole page for.
-  if(full) runConfetti(fullScreenConfettiCanvas());
+  if(scenPb) runConfetti(fullScreenConfettiCanvas());
 }
 
 // The confetti used to be trapped inside the celebration card, which is a small
@@ -2972,7 +3077,7 @@ function renderSessionPanel(){
     // Part of the session panel, so it collapses with it rather than floating
     // over a hidden section.
     (sessionCollapsed ? '' :
-      '<label class="chk followchk" title="Off: the panel stops naming what you are playing and new-run notices stop popping up."><input type="checkbox" id="followScen"' +
+      '<label class="chk followchk" title="Off: the panel stops naming what you are playing."><input type="checkbox" id="followScen"' +
       (followScen?' checked':'') + '> Follow current scenario</label>') + '</h3>' +
     (sessionCollapsed ? '' :
       nowPlaying +
@@ -3003,7 +3108,6 @@ function renderSessionPanel(){
   const f = document.getElementById('followScen');
   if(f) f.addEventListener('change', () => {
     followScen = f.checked; saveFollowScen();
-    if(!followScen && has('#liveNote')) $('#liveNote').innerHTML = '';
     renderSessionPanel();
   });
 
@@ -3053,14 +3157,11 @@ function showLiveNote(sinceMs){
   if(bestAch) celebrate(bestAch);
   fresh.forEach(noteSessionAvg);
   noteRunForBreak(fresh.length);
+  // No "just played" pop-up. The session panel already carries the scenario,
+  // the sensitivity and the score, it is on screen the whole time, and it does
+  // not have to be dismissed. A notification that duplicates something already
+  // visible is just something else to close.
   renderSessionPanel();
-  if(!followScen){ dismissToast('live'); return; }
-  const n = fresh[0];
-  const when = n.date.toTimeString().slice(0,5);
-  toast('live', 'Just played: <b>' + esc(n.scen) + '</b> — ' +
-    fmt(n.score) + (n.cm360!=null ? ' at ' + Math.round(n.cm360) + 'cm' : '') + ' at ' + when +
-    (fresh.length > 1 ? ' &nbsp;·&nbsp; ' + fresh.length + ' new runs picked up' : ''),
-    {kind:'good', ms:60000});
 }
 
 function renderLog(){
@@ -3274,6 +3375,124 @@ function chartScale(scores){
 
 // legendRs is the scenario's full run list even when rsAll has been filtered to
 // one cm, so the chips never disappear out from under the filter that made them.
+// ---------------------------------------------------------------------------
+// Chart hover.
+//
+// A native title= would have done, except for two things the user actually
+// asked about: it waits about a second before appearing, and it only fires when
+// the pointer is genuinely over a 2px circle. Both are fixed here - the points
+// are matched by nearest-neighbour inside a ~26px grab radius, so you aim at a
+// region rather than at a dot, and the panel appears in a few tens of ms.
+//
+// Point data lives in a map keyed by the chart's id rather than in data-
+// attributes: a 200-run chart would otherwise carry 15KB of JSON in its markup,
+// times however many cards are open.
+// ---------------------------------------------------------------------------
+const SPARK_PTS = new Map();
+let sparkSeq = 0;
+const SPARK_GRAB_PX = 26;   // how close is close enough, in screen pixels
+const SPARK_DELAY_MS = 45;  // vs roughly 1000ms for a browser tooltip
+
+function sparkRegister(entry){
+  const id = 'spark' + (++sparkSeq);
+  SPARK_PTS.set(id, entry);
+  // Charts are re-rendered wholesale, so old ids simply stop existing. Rather
+  // than depending on a frame callback to notice - which never fires in a
+  // background tab - cap the map: insertion order means the oldest are the
+  // dead ones.
+  while(SPARK_PTS.size > 120) SPARK_PTS.delete(SPARK_PTS.keys().next().value);
+  return id;
+}
+
+let sparkTipEl = null, sparkTipTimer = 0, sparkTipFor = null;
+
+function sparkTipNode(){
+  if(!sparkTipEl){
+    sparkTipEl = document.createElement('div');
+    sparkTipEl.className = 'sparktip';
+    sparkTipEl.hidden = true;
+    document.body.appendChild(sparkTipEl);
+  }
+  return sparkTipEl;
+}
+
+function hideSparkTip(){
+  clearTimeout(sparkTipTimer);
+  sparkTipFor = null;
+  if(sparkTipEl) sparkTipEl.hidden = true;
+  document.querySelectorAll('svg.spark .sparkhl').forEach(c => c.setAttribute('opacity','0'));
+}
+
+function sparkTipHtml(pt){
+  const d = new Date(pt.t);
+  const pad = n => (n<10?'0':'') + n;
+  const when = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()) +
+               ' · ' + pad(d.getHours())+':'+pad(d.getMinutes());
+  if(pt.zero){
+    return '<div class="stt">Scored 0</div><div class="sts">'+when+'</div>' +
+      '<div class="sts">Drawn so you can see it happened — kept out of every average.</div>';
+  }
+  const bits = [];
+  if(pt.cm != null) bits.push(Math.round(pt.cm)+'cm/360');
+  if(pt.dur) bits.push(Math.round(pt.dur)+'s');
+  bits.push('run '+pt.i+' of '+pt.n);
+  const vs = (pt.typ && pt.typ > 0)
+    ? (() => { const p = (pt.score - pt.typ)/pt.typ*100;
+               return '<div class="sts '+(p>=0?'up':'dn')+'">'+(p>=0?'+':'')+p.toFixed(1)+
+                      '% vs typical ('+fmt(pt.typ)+')</div>'; })()
+    : '';
+  return '<div class="stt">'+fmt(pt.score)+
+      (pt.pb ? ' <span class="sttpb">new PB</span>' : '')+'</div>'+
+    '<div class="sts">'+when+'</div>'+
+    '<div class="sts">'+bits.join(' · ')+'</div>'+vs;
+}
+
+function onSparkMove(e){
+  const svg = e.target.closest ? e.target.closest('svg.spark') : null;
+  if(!svg){ if(sparkTipFor) hideSparkTip(); return; }
+  const d = SPARK_PTS.get(svg.id);
+  if(!d || !d.pts.length) return;
+  const box = svg.getBoundingClientRect();
+  if(!box.width) return;
+  const k = d.w / box.width;                       // viewBox units per screen px
+  const vx = (e.clientX - box.left) * k, vy = (e.clientY - box.top) * k;
+  const grab = SPARK_GRAB_PX * k;
+  let bestPt = null, bestD = grab*grab;
+  for(const p of d.pts){
+    const dx = p.cx - vx, dy = p.cy - vy, q = dx*dx + dy*dy;
+    if(q <= bestD){ bestD = q; bestPt = p; }
+  }
+  if(!bestPt){ if(sparkTipFor) hideSparkTip(); return; }
+
+  const key = svg.id + ':' + bestPt.cx + ':' + bestPt.cy;
+  const node = sparkTipNode();
+  const show = () => {
+    node.innerHTML = sparkTipHtml(bestPt);
+    node.hidden = false;
+    // Ring the point being read, so there is no doubt which one it is.
+    const hl = svg.querySelector('.sparkhl');
+    if(hl){
+      hl.setAttribute('cx', bestPt.cx); hl.setAttribute('cy', bestPt.cy);
+      hl.setAttribute('opacity', '.85');
+    }
+    // Placed clear of the cursor, and flipped rather than clipped at an edge.
+    const r = node.getBoundingClientRect();
+    let left = e.clientX + 16, top = e.clientY + 16;
+    if(left + r.width > window.innerWidth - 8) left = e.clientX - r.width - 16;
+    if(top + r.height > window.innerHeight - 8) top = e.clientY - r.height - 16;
+    node.style.left = Math.max(8, left) + 'px';
+    node.style.top = Math.max(8, top) + 'px';
+  };
+  if(sparkTipFor === key){ show(); return; }   // already up: follow instantly
+  sparkTipFor = key;
+  clearTimeout(sparkTipTimer);
+  sparkTipTimer = setTimeout(show, node.hidden ? SPARK_DELAY_MS : 0);
+}
+
+document.addEventListener('mousemove', onSparkMove, {passive:true});
+document.addEventListener('mouseleave', hideSparkTip);
+window.addEventListener('scroll', hideSparkTip, {passive:true, capture:true});
+
 function spark(rsAll, byCm, legendRs, pinnedCm){
   // 2:1 plot area. Slope is judged most accurately when the average segment
   // sits near 45 degrees; wide-and-short charts flatten trends (Cleveland).
@@ -3316,11 +3535,24 @@ function spark(rsAll, byCm, legendRs, pinnedCm){
   const band = (rs.length >= TUNING.CHART_BAND_MIN_N && s.sd > 0)
     ? '<path d="'+bandTop+bandBot.join('')+'Z" fill="var(--med)" opacity=".15"/>' : '';
 
+  // Every plotted run is also registered as a hover target. The dots stay 2px -
+  // making them big enough to hit reliably would turn a 200-run chart into a
+  // smear - so the grab radius is done in the pointer handler instead, where it
+  // can be far larger than the mark it belongs to.
+  const typ = sc.length >= TUNING.TYPICAL_MIN_N
+    ? trimmedMean([...sc].sort((a,b)=>a-b), TUNING.TRIM_FRACTION) : null;
+  const hover = [];
+  let runningBest = -Infinity;
   const dots = rs.map((r,i)=>{
     const useCm = byCm && r.cm360!=null;
     const fill = useCm ? cmColor(Math.round(r.cm360)) : 'currentColor';
     const op = useCm ? '.8' : '.32';
     const rad = useCm ? 2.1 : 1.4;
+    const wasPb = r.score > runningBest && i > 0;
+    if(r.score > runningBest) runningBest = r.score;
+    hover.push({cx:+x(i).toFixed(1), cy:+y(r.score).toFixed(1), c:fill,
+                score:r.score, t:r.date.getTime(), cm:r.cm360, dur:r.dur,
+                i:i+1, n:rs.length, pb:wasPb, typ});
     return '<circle cx="'+x(i).toFixed(1)+'" cy="'+y(r.score).toFixed(1)+'" r="'+rad+'" fill="'+fill+'" opacity="'+op+'"/>';
   }).join('');
 
@@ -3340,16 +3572,20 @@ function spark(rsAll, byCm, legendRs, pinnedCm){
     // Placed by time so it lands where it happened, not bolted onto the end.
     const i = rs.findIndex(r => r.date > z.date);
     const at = i === -1 ? rs.length - 1 : Math.max(0, i - 1);
+    hover.push({cx:+x(at).toFixed(1), cy:+(H-P-2).toFixed(1), c:'var(--low)',
+                score:0, t:z.date.getTime(), cm:z.cm360, dur:z.dur, zero:true});
     return '<circle cx="'+x(at).toFixed(1)+'" cy="'+(H-P-2).toFixed(1)+'" r="2.6" fill="none" '+
-      'stroke="var(--low)" stroke-width="1.2" opacity=".65"><title>Scored 0 on '+
-      esc(z.date.toISOString().slice(0,10))+' — shown, but not counted in any %</title></circle>';
+      'stroke="var(--low)" stroke-width="1.2" opacity=".65"/>';
   }).join('');
 
-  return '<svg class="spark" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Score over time with individual runs, a one-sigma noise band, PB steps, rolling median and rolling bottom ten percent" style="color:var(--ink3)">'+
+  const sparkId = sparkRegister({w:W, h:H, pts:hover});
+  return '<svg id="'+sparkId+'" class="spark" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Score over time with individual runs, a one-sigma noise band, PB steps, rolling median and rolling bottom ten percent" style="color:var(--ink3)">'+
     ticks + band + dots + zeroMarks +
     '<path d="'+pb+'" fill="none" stroke="var(--best)" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="miter" vector-effect="non-scaling-stroke"/>'+
     '<path d="'+low+'" fill="none" stroke="var(--low)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>'+
-    '<path d="'+med+'" fill="none" stroke="var(--med)" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>'+
+    '<path d="'+med+'" fill="none" stroke="var(--med)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>'+
+    // Last, so the ring round the run you are reading sits on top of everything.
+    '<circle class="sparkhl" r="5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0"/></svg>'+
     scaleNote(s, zeros.length) +
     (byCm ? cmDotLegend(legendRs || rsAll, pinnedCm) : '');
 }
@@ -4078,6 +4314,51 @@ function selfTest(){
   t('separate stretches are disjoint', cmTimeOverlap(early, late).disjoint, true);
   t('and the gap is measured in days', Math.round(cmTimeOverlap(early, late).gapDays), 71);
   t('interleaved stretches are not', cmTimeOverlap(early, together).disjoint, false);
+
+  // ---- why a comparison is missing ---------------------------------------
+  // The reason has to distinguish "not enough runs" from "no earlier period at
+  // all" - they need completely different things from the player.
+  const cell = (wn, bn) => ({w:{n:wn}, b:{n:bn}});
+  const V1 = {st:{n:16}, cells:[cell(10,16), cell(0,1), cell(6,0), cell(0,0)]};
+  const w1 = cmpWhy(V1, 'ceiling', 15);
+  t('a thin comparison names the shortfall', /at least 15 runs/.test(w1), true);
+  t('and counts both sides of the fullest band', /10 in this window and 16/.test(w1), true);
+  t('and explains the cm split', /split across 4 sensitivity bands/.test(w1), true);
+  t('the reason never repeats the row name', /^Needs/.test(w1), true);
+
+  const V2 = {st:{n:12}, cells:[cell(12,0), cell(3,0)]};
+  t('no earlier period is said as such',
+    /nothing to compare against yet/.test(cmpWhy(V2, 'typical', 10)), true);
+  const V3 = {st:{n:12}, cells:[cell(12,0), cell(0,9)]};
+  t('a sensitivity you no longer play is a different reason',
+    /also played in the period before it/.test(cmpWhy(V3, 'typical', 10)), true);
+  const V4 = {st:{n:30}, cells:[cell(15,15)]};
+  t('one band does not claim a split', /split across/.test(cmpWhy(V4, 'floor', 20)), false);
+
+  // ---- confetti is for a scenario PB only --------------------------------
+  // A best at one sensitivity is real, but there are as many of those as you
+  // have sensitivities. Whole-window confetti for each would mean nothing.
+  const scenPbOf = a => a.kind === 'pb' && a.scope === 'scenario';
+  t('scenario PB gets confetti', scenPbOf({kind:'pb', scope:'scenario'}), true);
+  t('cm PB does not', scenPbOf({kind:'pb', scope:'cm'}), false);
+  t('a new high on a thin scenario does not', scenPbOf({kind:'high', scope:'scenario'}), false);
+
+  // ---- sorting by how well measured a scenario is ------------------------
+  // Deliberately not run count: what decides whether a scenario can show you
+  // progress is the width of its interval.
+  const mkRow = (n, se) => ({st:{n}, nMin:n, typical: se == null ? null : {pct:1, se}});
+  const rowsD = [mkRow(400, 3.0), mkRow(40, 0.8), mkRow(90, null), mkRow(20, null)];
+  const ciH = r => (r.typical && r.typical.se != null) ? TUNING.CI_Z * r.typical.se : null;
+  rowsD.sort((a,b) => {
+    const ca = ciH(a), cb = ciH(b);
+    if(ca != null && cb != null) return ca - cb;
+    if(ca != null) return -1;
+    if(cb != null) return 1;
+    return (b.nMin - a.nMin) || (b.st.n - a.st.n);
+  });
+  t('the tightest interval sorts first, not the biggest pile of runs', rowsD[0].st.n, 40);
+  t('a wide interval still beats no interval', rowsD[1].st.n, 400);
+  t('unmeasurable rows fall to the bottom, most runs first', rowsD[3].st.n, 20);
 
   const fails = R.filter(r => !r.ok);
   const fmtv = v => (typeof v === 'number' ? (Math.round(v * 1e6) / 1e6) : String(v));

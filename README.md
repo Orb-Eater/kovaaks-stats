@@ -1,7 +1,7 @@
 # KovaaK's stats
 
 Written by the one and only Orb Eater.
-Yes, not AI. (Talking about this reqdme text not everything else)
+Yes, not AI. (Talking about this reqdme text not everything else) Every line of code and design is by Claude with my input. Read faq Line 54.
 
 "why another KovaaK's app, we already have over 5 different ones ugh"
 This was not planned to be public, this was purely for personal use, but since people where interested in the metrics I shared over personal dm's, more than enough people wanted me to give them access. This is beta build, locally run, opens in web browser.

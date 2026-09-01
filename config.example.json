@@ -1,0 +1,6 @@
+{
+  "stats_folder": "",
+  "port": 8765,
+  "scan_interval_seconds": 5,
+  "open_browser": true
+}

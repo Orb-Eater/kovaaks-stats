@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KovaaK's stats — simple</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+
+<h1>KovaaK's stats</h1>
+<p class="sub">The short version: how your floor and ceiling are moving. <a href="index.html">Full version →</a></p>
+
+<div class="panel" id="panel">
+  <div class="drop" id="drop">
+    <p style="margin:0 0 16px;color:var(--ink2);font-size:14px">Drag your <code>stats</code> folder here, or</p>
+    <label class="btn" for="pick">Choose folder</label>
+    <input type="file" id="pick" webkitdirectory directory multiple>
+    <label class="btn" for="pickf" style="margin-left:8px">Choose files</label>
+    <input type="file" id="pickf" multiple accept=".csv">
+    <p class="note" style="margin:16px 0 0">Usually at<br><code>…/steamapps/common/FPSAimTrainer/FPSAimTrainer/stats</code></p>
+  </div>
+  <div id="folderSetup" style="display:none"></div>
+  <div id="loadmsg"></div>
+</div>
+<div id="liveNote"></div>
+<div id="whatsNew" style="display:none"></div>
+
+<div id="app" style="display:none">
+  <div class="controls">
+    <span><label for="win">Window</label>
+    <select id="win">
+      <option value="0">All</option>
+      <option value="180">180 days</option>
+      <option value="90">90 days</option>
+      <option value="30" selected>30 days (recommended)</option>
+      <option value="14">14 days</option>
+      <option value="7">7 days</option>
+      <option value="custom">Custom range…</option>
+    </select></span>
+    <span class="cmrow" id="customRangeUI" style="display:none">
+      <label style="font-size:13px;color:var(--ink2)">from</label>
+      <span class="datepick" data-target="winFrom">
+        <select class="dsel" aria-label="from day"></select>
+        <select class="msel" aria-label="from month"></select>
+        <select class="ysel" aria-label="from year"></select>
+      </span>
+      <label style="font-size:13px;color:var(--ink2)">to</label>
+      <span class="datepick" data-target="winTo">
+        <select class="dsel" aria-label="to day"></select>
+        <select class="msel" aria-label="to month"></select>
+        <select class="ysel" aria-label="to year"></select>
+      </span>
+      <input type="hidden" id="winFrom"><input type="hidden" id="winTo">
+    </span>
+    <span><label for="minruns">Min runs</label>
+    <input type="number" id="minruns" value="10" min="1" max="500" style="width:74px"></span>
+    <label class="chk" title="Drop the first runs of each play session. They are systematically lower than the rest, and if session lengths differ between the two periods that bias shows up as a fake skill change.">
+      <input type="checkbox" id="exWarmup" checked> Skip warmup
+    </label>
+    <label class="chk" title="Drop the first runs after returning to a scenario following a long break. Those runs measure unfamiliarity, not skill.">
+      <input type="checkbox" id="exRefam" checked> Skip re-familiarisation
+    </label>
+    <span><label for="cmp">Compare vs</label>
+    <select id="cmp">
+      <option value="prev" selected>Previous window (recommended)</option>
+      <option value="first">First half of window</option>
+    </select></span>
+  </div>
+  <p class="note" id="allnote" style="display:none">"All" uses first half vs second half of your history for comparisons — there's no earlier baseline for all-time.</p>
+
+  <div id="cmwrap" style="display:none">
+    <div class="cmbar">
+      <span class="lbl"><b>cm/360</b></span>
+      <button type="button" class="tabbtn active" id="cmTabOff" title="No cm/360 filtering — every run is included.">Raw</button>
+      <button type="button" class="tabbtn" id="cmTabRange" title="Only include runs whose cm/360 falls within a min–max range.">Range</button>
+      <button type="button" class="tabbtn" id="cmTabPick" title="Only include runs at one specific cm/360.">Specific</button>
+      <label class="chk" title="Removes cm/360 values that only show up in a handful of runs.">
+        <input type="checkbox" id="cmOutlier" checked> Exclude outliers
+      </label>
+      <button type="button" id="cmClear">Clear filter</button>
+    </div>
+    <div class="cmsub" id="cmRangeUI" style="display:none">
+      <input type="number" id="cmMin" step="0.5" style="width:72px" list="cmvals">
+      <span style="color:var(--ink2)">–</span>
+      <input type="number" id="cmMax" step="0.5" style="width:72px" list="cmvals">
+      <datalist id="cmvals"></datalist>
+    </div>
+    <div class="cmsub" id="cmPickUI" style="display:none">
+      <div class="cmpicker">
+        <input type="text" id="cmPickSearch" placeholder="find cm… (e.g. 5 → 5, 50-59)">
+        <div class="cmlist" id="cmList"></div>
+        <button type="button" id="cmListAll" class="cmlistall">Show all</button>
+      </div>
+    </div>
+    <div class="cmrow" id="favCmRow"></div>
+    <p class="note" id="cmWindowNote"></p>
+  </div>
+
+  <div class="sectionbar" style="margin-bottom:8px">
+    <label class="chk" title="Reminders to step away. Run-based and time-based fire independently."><input type="checkbox" id="brkEnable"> Break reminders</label>
+    <span class="cmrow" id="brkOpts" style="display:none">
+      <label for="brkRuns" style="font-size:13px;color:var(--ink2)">every</label>
+      <input type="number" id="brkRuns" min="0" max="500" style="width:70px" title="0 turns the run-based reminder off">
+      <span style="font-size:13px;color:var(--ink2)">runs</span>
+      <select id="brkMin" title="Independent of the run count">
+        <option value="0">no timer</option>
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+        <option value="45">45 min</option>
+        <option value="60">60 min</option>
+      </select>
+      <label class="chk" title="Start the timer automatically when the app opens, from your first run"><input type="checkbox" id="brkAuto"> autostart</label>
+      <button type="button" id="brkReset">Reset now</button>
+      <span class="note" id="breakStatus" style="margin:0"></span>
+    </span>
+  </div>
+  <div id="breakAlert"></div>
+  <div id="sessionPanel"></div>
+  <!-- PB / new-score card: under the session panel so it lands
+       where you are already looking, not above the fold. -->
+  <div id="celebrate"></div>
+  <div class="cards" id="overview"></div>
+  <div class="explainrow" id="caveatsRow" style="display:none">
+    <button type="button" class="explaintoggle" id="caveatsBtn" aria-expanded="false">Show figure explanation</button>
+  </div>
+  <div id="caveats" style="display:none"></div>
+  <div id="trendChartWrap"></div>
+
+  <div style="text-align:center">
+    <span style="margin-right:12px"><label for="sortby2" style="font-size:13px;color:var(--ink2);margin-right:5px">Sort</label>
+    <select id="sortby2">
+      <option value="runs">Most played</option>
+      <option value="recent">Recently played</option>
+      <option value="trend">Biggest gain</option>
+      <option value="needplay">Recommended to play</option>
+      <option value="cv">Least consistent</option>
+      <option value="stale">Longest since played</option>
+      <option value="name">Name</option>
+    </select></span>
+    <button id="toggleRuns" class="runstoggle" style="display:inline-block;margin:6px 0 20px">See runs ▾</button>
+  </div>
+  <div id="listWrap" style="display:none">
+    <div class="searchbar">
+      <input type="text" id="runSearch" placeholder="Search scenarios…">
+      <span class="note" id="runSearchNote" style="margin:0;white-space:nowrap"></span>
+    </div>
+    <div id="list"></div>
+    <div id="listMore" style="text-align:center;margin:14px 0 0"></div>
+  </div>
+</div>
+
+<footer class="sitefoot">
+  <p class="credit"><b>Orb Eater</b> did the thinking, <b>Claude</b> did everything else.</p>
+  <p class="socials">
+    <a href="https://pyvno.xyz/orbeater" target="_blank" rel="noopener noreferrer">Kova</a>
+    <a class="xlink" href="https://x.com/OrbEater_" target="_blank" rel="noopener noreferrer" aria-label="X" title="@OrbEater_"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M18.9 2.2h3.4l-7.5 8.6 8.8 11.6h-6.9l-5.4-7.1-6.2 7.1H1.7l8-9.1L1.3 2.2h7.1l4.9 6.5 5.6-6.5Zm-1.2 18.2h1.9L6.4 4.1H4.4l13.3 16.3Z"/></svg></a>
+  </p>
+  <p class="inspired">Inspired by
+    <a href="https://evxl.app/" target="_blank" rel="noopener noreferrer">Evxl.app</a>,
+    <a href="https://refleksapp.com/" target="_blank" rel="noopener noreferrer">Reflek&rsquo;s</a>,
+    <a href="https://github.com/MingoDynasty/Corporate-Serf-Dashboard" target="_blank" rel="noopener noreferrer">Corporate Serf Dashboard</a>
+    and <a href="https://pyvno.xyz/" target="_blank" rel="noopener noreferrer">Kova</a>.</p>
+  <p class="buildstamp" id="buildStamp"></p>
+</footer>
+
+<script src="build.js"></script>
+<script src="core.js"></script>
+</div>
+</body>
+</html>

@@ -1,0 +1,374 @@
+
+Honest Scaling for Time-Series Score Charts
+
+A reference for rendering aim-trainer score progression (PB, average, low-average) without visually inflating or flattening real change.
+
+Written to be used as implementation context.
+
+1. The problem being solved
+
+Any chart of a score over time makes an implicit claim about 
+
+how much
+
+ the score changed. That claim is controlled almost entirely by the
+
+y-axis range, and the y-axis range is usually chosen by a default that has nothing to do with meaning: fit the data to the frame. Auto-
+
+fitting min/max is the single biggest source of visual dishonesty in progress charts, because it stretches whatever variation exists to fill
+
+the available height. A flat plateau and a genuine breakthrough render identically. The viewer cannot tell them apart.
+
+Tufte's 
+
+lie factor
+
+ formalises this:
+
+lie_factor = (size of effect shown in graphic) / (size of effect in data)
+
+A lie factor of 1.0 is honest. Auto-fit axes on noisy data routinely produce lie factors of 5–20. The goal is not to force a lie factor of
+
+exactly 1 — that would make most real progress invisible — but to make the distortion 
+
+principled and constant
+
+ rather than accidental and
+
+variable.
+
+2. Baseline rules by chart type
+
+Encoding
+
+Zero
+
+baseline
+
+Reason
+
+Bar / column /
+
+area
+
+Required
+
+The mark's 
+
+length
+
+ encodes the value. Truncating the axis makes the length ratio between bars a lie. 
+
+A bar chart with
+
+a cut axis is always wrong.
+
+Line / dot /
+
+scatter
+
+Not
+
+required
+
+Position encodes the value and slope encodes change. Zero carries no information for scores whose meaningful
+
+range is a narrow band far from zero.
+
+Score progression is a line/dot encoding. A truncated y-axis is legitimate. But it must be truncated to a 
+
+defensible
+
+ range,
+
+not an auto-fitted one.
+
+3. Core rule: scale by variability, not by range
+
+The defensible range comes from the noise in the data. A score is not a fixed quantity; it is a sample from a distribution whose spread
+
+reflects consistency, warm-up state, and luck. The unit of "how big is this change" should therefore be the standard deviation of that
+
+distribution — the same idea as an effect size (Cohen's 
+
+d
+
+).
+
+mu    = mean(runs_in_window)
+
+sigma = stddev(runs_in_window)
+
+y_min = mu - K * sigma
+
+y_max = mu + K * sigma      // K = 3.5 is a good default
+
+Consequences of this rule, all of which are desirable:
+
+A 2
+
+σ
+
+ improvement occupies twice the vertical distance of a 1
+
+σ
+
+ improvement. Improvements become 
+
+visually comparable to each
+
+other.
+
+Run-to-run noise renders as noise. It occupies a small, consistent fraction of the frame instead of filling it.
+
+A player with high consistency (small 
+
+σ
+
+) gets a tighter axis, so their smaller-but-real gains stay visible. 
+
+A streaky player gets a wider
+
+axis, so their swings do not read as progress.
+
+A genuinely flat period looks flat. This is the property auto-fit destroys.
+
+Tuning K: lower K (2.5–3) magnifies change and is better for short windows; higher K (4–5) is more conservative. Expose it as a setting rather than
+
+hard-coding, but default it and never let the axis fall back to min/max.
+
+Clamping
+
+Two guards are needed. If 
+
+σ
+
+ is very small (a scenario with few runs, or an unusually consistent streak) the axis can collapse and re-
+
+amplify noise; enforce a minimum span as a percentage of the mean. And the window must always contain every plotted point, so
+
+expand the range if any run falls outside it rather than clipping the line.
+
+span     = max(K * sigma, MIN_SPAN_PCT * mu)     // MIN_SPAN_PCT ~ 0.04
+
+y_min    = min(mu - span, min(visible_points))
+
+y_max    = max(mu + span, max(visible_points))
+
+4. Freeze the σ window so the axis does not jitter
+
+If 
+
+σ
+
+ is recomputed over all visible data every render, the axis changes shape every session and two screenshots taken a week apart are
+
+not comparable. Compute 
+
+σ
+
+ over a 
+
+fixed trailing window
+
+ — the last N runs (50 is a reasonable default) or a fixed number of days —
+
+and hold that scale while the user pans or zooms the time axis.
+
+Zooming the x-axis must never rescale the y-axis. If it does, the same improvement changes apparent size depending on
+
+how far the user has scrolled, which is exactly the distortion this document exists to prevent.
+
+5. Draw the noise floor explicitly
+
+This is the highest-value change in the whole document, because it makes the chart self-calibrating. Rather than asking the viewer to
+
+trust the axis, show them the spread directly:
+
+Plot 
+
+every individual run
+
+ as a small low-opacity dot behind the aggregate lines.
+
+Draw a shaded band at 
+
+±1
+
+σ
+
+ around the rolling mean
+
+.
+
+Keep PB, average, and low-average as distinct lines on top.
+
+The interpretation then becomes visual and immediate: 
+
+a point or trend that clears the band is real progress; one that sits inside the band is
+
+a good day.
+
+ No axis choice can mislead a viewer who can see the noise floor, which is what makes this robust in a way that axis rules
+
+alone are not.
+
+Related: a single PB is an extreme-value statistic and is inherently noisier than a mean. PB lines will always look jumpier than average lines even when
+
+nothing has changed. Rendering PB as a step function rather than a smooth line makes its ratchet nature explicit and discourages reading slope into it.
+
+6. Aspect ratio: bank to 45°
+
+Cleveland's result on slope perception: humans judge rate of change most accurately when the average line segment sits near 45°. Charts
+
+that are very wide and short flatten trends; tall and narrow charts exaggerate them. The aspect ratio is therefore part of the honesty of
+
+the chart, not just its styling.
+
+// after y-range is fixed, choose width for a given height (or vice versa)
+
+median_abs_slope_in_data_units = median(|y[i+1] - y[i]|)   // per x step
+
+target: (median_abs_slope / y_span) * plot_height
+
+        ~= (1 / n_visible_points) * plot_width
+
+Full auto-banking is often impractical in a fixed layout. A workable approximation: keep the plot area near a 2:1 width:height ratio, and
+
+if the visible window is very long, either reduce the point count via aggregation or allow horizontal scrolling rather than compressing
+
+more points into the same width.
+
+7. Comparing across scenarios
+
+Raw scores are not comparable between scenarios — different scoring formulas produce wildly different scales and different natural
+
+variances. Any multi-scenario view must normalise:
+
+Transform
+
+Formula
+
+Use when
+
+Percent change from baseline
+
+(x - x0) / x0
+
+Communicating progress to a person; intuitive and directly readable.
+
+Z-score
+
+(x - mu) / sigma
+
+Asking "where am I strong or weak"; puts every scenario in units of its own noise.
+
+Log scale
+
+log(x)
+
+Gains are multiplicative; equal vertical distance means equal percentage gain.
+
+Percent change is the better default for a progress view. Z-scores are the better default for a comparison view. Do not mix them on one
+
+axis.
+
+8. Sensitivity as a confound
+
+Runs at different cm/360 values are not samples from the same distribution, so pooling them inflates 
+
+σ
+
+ and corrupts every calculation
+
+above. Filtering to a single sensitivity before computing statistics is a precondition for this whole scheme, not an optional view setting. If
+
+a chart is showing mixed sensitivities, either split it into separate series or label the scale as uncomparable.
+
+9. Implementation checklist
+
+1. 
+
+Filter runs to one scenario and one cm/360.
+
+2. 
+
+Compute µ and 
+
+σ
+
+ over a fixed trailing window (default: last 50 runs).
+
+3. 
+
+Set y-range to µ ± max(3.5
+
+σ
+
+, 4% of µ), expanded to contain all visible points.
+
+4. 
+
+Hold that y-range constant across x-axis zoom and pan.
+
+5. 
+
+Render individual runs as faint dots; render a ±1
+
+σ
+
+ band around the rolling mean.
+
+6. 
+
+Render average and low-average as lines; render PB as a step function.
+
+7. 
+
+Keep the plot area near 2:1; aggregate or scroll rather than compressing many points.
+
+8. 
+
+Never use a bar chart with a truncated axis.
+
+9. 
+
+For cross-scenario views, switch to percent change or z-scores.
+
+10. Anti-patterns
+
+Auto-fit min/max y-axis.
+
+ The default in most charting libraries. Disable it explicitly.
+
+Y-axis rescaling on zoom.
+
+ Makes the same change appear different sizes at different zoom levels.
+
+Truncated bar charts.
+
+ Always a lie factor greater than 1.
+
+Heavy smoothing without showing raw points.
+
+ A smoothed line implies a precision the data does 
+
+not have; the reader loses all
+
+sense of the noise floor.
+
+Trend lines fitted through fewer than ~20 runs.
+
+ Slope estimates on small samples are dominated 
+
+by noise and will confidently
+
+show progress that is not there.
+
+Pooling sensitivities.
+
+ Inflates 
+
+σ
+
+ and makes the band meaningless.

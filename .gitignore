@@ -1,0 +1,19 @@
+# Per-install state. config.json holds YOUR stats folder path, which is personal
+# and machine-specific - it must never be committed.
+config.json
+cache/
+logs/
+.browser-opened
+__pycache__/
+*.pyc
+
+# Frozen releases are reproducible from tags: `git checkout v0.1.0` gives you
+# that exact build. Committing eight copies of the whole app would bloat the
+# repo for no benefit. They still live on disk locally and keep working.
+releases/
+
+# Windows / editor noise
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

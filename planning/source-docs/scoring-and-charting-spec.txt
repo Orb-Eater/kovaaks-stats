@@ -1,0 +1,654 @@
+
+Scoring & Charting Specification
+
+Measurement design for an aim-trainer statistics application. Covers metric definitions, statistical corrections, evidence base, and rendering rules.
+
+Written as implementation context, not as an essay — sections 3 through 8 are normative.
+
+1. Purpose
+
+This document specifies how to compute and display skill change over time from exported run data. It exists because the obvious implementation
+
+— average the scores, track the personal best, draw a line — produces numbers that are systematically misleading in three independent ways: they
+
+measure the wrong construct, they contain a volume artifact, and they are rendered on an arbitrary scale.
+
+The central design constraint is that the application must be able to say 
+
+"this is not distinguishable from noise"
+
+ and must do so often. A statistics tool
+
+that always reports a trend is a random number generator with a confident interface.
+
+2. Foundational principle: performance is not learning
+
+The distinction organises everything below. 
+
+Performance
+
+ is what is observable during a training session. 
+
+Learning
+
+ is the relatively permanent
+
+change in capability that supports retention and transfer. The two are routinely dissociated: learning can occur with no visible performance change,
+
+performance can improve without producing learning, and some training manipulations move them in opposite directions (Soderstrom & Bjork,
+
+2015). Learning is measured with a 
+
+retention test
+
+ — cold performance at a later date — not with within-session numbers.
+
+Practical consequence: within-session improvement over 60 runs of one scenario is largely warm-up, task familiarity, and short-term tuning. It is
+
+real, it feels like progress, and it is a poor predictor of tomorrow's capability. The application must not present it as skill gain.
+
+Two metric families, never mixed on one axis or in one headline number:
+
+Form
+
+ — performance right now, contaminated by warm-up, fatigue, schedule, and volume.
+
+Skill
+
+ — retention-based estimate of durable capability, computed from cold-start runs.
+
+3. Confound inventory
+
+Every one of these must be recorded per run and available to the aggregation layer. Metrics that ignore them are not comparable across sessions.
+
+Field
+
+Why it matters
+
+sensitivity_cm360
+
+Runs at different sensitivities are not samples from one distribution. 
+
+Pooling inflates σ and corrupts every
+
+calculation in this document. Hard filter, not a view option.
+
+run_index_in_session
+
+Warm-up decrement early, fatigue late. Position in session predicts 
+
+score independently of skill.
+
+runs_of_scenario_in_session
+
+Drives the extreme-value artifact in PB and low-average 
+
+(§4.1).
+
+gap_since_last_session
+
+Determines whether the first run qualifies as a retention 
+
+test.
+
+session_schedule_index
+
+Blocked vs interleaved changes expected in-session performance by 
+
+design (§5).
+
+session_total_runs
+
+,
+
+timestamp
+
+Session length proxies fatigue; time of day is 
+
+a known nuisance variable.
+
+4. Metric rework
+
+4.1 The extreme-value problem (fix this first)
+
+Personal best is the maximum of 
+
+n
+
+ samples. The expected maximum increases with 
+
+n
+
+ even when the underlying distribution has not moved at all. A
+
+player taking 60 runs at a scenario will set personal bests far more often than one taking 4, with identical skill. Raw PB comparison across sessions
+
+of different length is therefore not a measurement — it is a count of how much the player played.
+
+Low-average has the same defect mirrored: more runs means sampling deeper into the left tail, so a long session produces a worse low-average for
+
+free.
+
+The correction is to compare the observed extreme against the extreme 
+
+expected
+
+ for that sample size. Using Blom's approximation for the expected
+
+maximum of a normal sample:
+
+// expected max of n draws from N(mu, sigma)
+
+expected_max(n, mu, sigma) = mu + sigma * inv_norm_cdf((n - 0.375) / (n + 0.25))
+
+// volume-adjusted PB quality, in units of sigma
+
+pb_surprise = (observed_pb - expected_max(n, mu, sigma)) / sigma
+
+// pb_surprise ~  0  => exactly the PB this volume predicts. Not news.
+
+// pb_surprise >  1  => genuinely above what volume alone explains.
+
+// pb_surprise <  0  => underperformed the session's own distribution.
+
+Report 
+
+pb_surprise
+
+ alongside the raw PB, and never render raw PB as a trend line without normalising for 
+
+n
+
+. Acceptable simpler alternatives:
+
+compare PBs only at matched run counts, or replace the maximum with the 95th percentile, which is far more stable at varying 
+
+n
+
+.
+
+Mean and σ are unbiased at any sample size. Max, min, and tail averages are not. Prefer the former as primary metrics; treat the
+
+latter as decorated highlights, not evidence.
+
+4.2 Regression to the mean
+
+The session following an exceptional session is worse on average. This is arithmetic, not decline. The application must not render a post-PB dip as a
+
+downtrend, and must not generate any prompt, warning, or commentary triggered by a single session falling below the previous one.
+
+4.3 Cold-start score: the primary learning metric
+
+Warm-up decrement is a temporary loss of performance following rest, distinct from forgetting, and it has been modelled explicitly as a fast
+
+transient process superimposed on the slow, persistent process of learning (Adams, 1952; Newell et al., 2013). That two-timescale structure is
+
+exploitable: the first run of a session, after a sufficient gap, is a naturally occurring retention test that the data already contains.
+
+cold_start_runs = [
+
+  first run of scenario S in session
+
+  WHERE gap_since_last_session >= COLD_GAP_HOURS   // default 12
+
+    AND run is among the first RUNS_BEFORE_WARM of the session  // default 1
+
+]
+
+skill_estimate(S) = rolling_mean(cold_start_runs, window = 8 sessions)
+
+Individually these runs are noisy — that is inherent to a single trial. Across sessions they are the cleanest signal of durable capability available
+
+without instrumenting a dedicated test protocol. This series, not the session average, is what belongs on a "skill over time" chart.
+
+Optional refinement: a dedicated benchmark protocol (fixed scenario set, fixed run count, first thing in a session, once a week) would be strictly better and is the
+
+standard approach in the literature. The cold-start metric is the zero-friction approximation.
+
+4.4 Within-session curve and de-trended session level
+
+Fit score against run index to separate the transient from the level. A two-timescale form matching the literature:
+
+score(i) = P * (1 - exp(-i / tau))  -  f * max(0, i - i_fatigue)
+
+// P         plateau level        -> the session's actual performance level
+
+// tau       warm-up time constant -> how many runs to reach form
+
+// f         fatigue slope         -> per-run decline after onset
+
+// i_fatigue fatigue onset index
+
+Report 
+
+P
+
+ as the session level rather than the raw session mean, which is biased downward by warm-up and by fatigue in long sessions. 
+
+tau
+
+ and
+
+i_fatigue
+
+ are useful derived metrics in their own right: they answer "how long do I need to warm up" and "how long can I train before it stops
+
+counting."
+
+Fall back to a trimmed mean of runs after the estimated warm-up when a session has too few runs to fit (under ~10). Do not fit the fatigue term at
+
+all below ~15 runs.
+
+5. Practice schedule is a first-class variable
+
+The contextual interference effect: presenting multiple task variants in randomised order produces 
+
+inferior performance during acquisition
+
+ but 
+
+better
+
+learning
+
+, measured by retention and transfer, compared with blocked practice (Shea & Morgan, 1979; Magill & Hall, 1990). In a complex bimanual
+
+task, the blocked group performed better during acquisition, but the random group outperformed it at both immediate and delayed retention and
+
+showed superior persistence over a one-week interval (Pauwels et al., 2014). The effect also holds for adaptation of already-established skills, not
+
+just acquisition of new ones (Tsay et al., 2023).
+
+This means a shift from long blocks per scenario to a few runs across many scenarios will 
+
+lower in-session scores by design
+
+ while improving
+
+actual learning. An application that scores on session averages will report that a better training schedule is making the player worse.
+
+// switches / (runs - 1);  ~0 = fully blocked, ~1 = fully interleaved
+
+schedule_index(session) = count_scenario_switches(session) / (total_runs - 1)
+
+Requirements:
+
+Compute 
+
+schedule_index
+
+ per session and store it.
+
+Never compare session-level performance across materially different schedule indices without labelling the 
+
+difference.
+
+Cold-start metrics (§4.3) are comparatively robust to schedule and are the correct basis for cross-schedule 
+
+comparison.
+
+Do not editorialise a recommendation. The advantage of random practice grows with the practitioner's experience in 
+
+a complex task; early in
+
+practice it can overload attention and memory demands (Wulf & Shea, 2002), so the 
+
+prescription is not universal.
+
+6. Transfer: do not attribute gains to per-scenario volume
+
+Improvement on a scenario after only a handful of runs at a related one is near transfer, and transfer is consistently greater following random
+
+practice than blocked (Shea & Morgan, 1979). It is a real effect, not an outlier to be filtered.
+
+The consequence is a hard limit on causal claims. Any statement of the form "you improved at X because you played X a lot" is confounded by the
+
+entire remaining scenario mix of every session. If the application is to model this at all, the unit of analysis is the session's full scenario composition,
+
+not the target scenario's run count. Otherwise, report correlation and volume separately and make no causal claim.
+
+7. Time windows and what each can support
+
+Window
+
+Supported
+
+Not supported
+
+Label
+
+1–7 days
+
+Current form; consistency (σ); session structure (tau, fatigue
+
+onset); volume
+
+Any learning claim. Too few sessions;
+
+performance factors dominate
+
+"Form" — never
+
+"improvement"
+
+1–30
+
+days
+
+Learning slope regressed on cold-start series, reported with a
+
+confidence interval; consistency trend
+
+Attribution to any single scenario or
+
+schedule change
+
+"Trend (estimated)"
+
+30+ vs
+
+baseline
+
+Distribution shift: median change, probability of superiority, σ
+
+change
+
+Anything computed from PB vs PB (see §4.1)
+
+"Change vs
+
+baseline"
+
+Probability of superiority is the most interpretable long-window statistic — the chance that a random run today beats a random run from the
+
+baseline period:
+
+P_superiority = norm_cdf( (mu_now - mu_base) / sqrt(sigma_now^2 + sigma_base^2) )
+
+// 0.50 = no change.  0.65 = a today-run beats a baseline-run about two times in three.
+
+8. Statistical gates
+
+Before any improvement is displayed as such, it must clear a threshold. Standard error of a session-level estimate falls with run count, so the gate is
+
+volume-aware:
+
+se(session)   = sigma / sqrt(n_runs)
+
+se_difference = sqrt(se(a)^2 + se(b)^2)
+
+significant   = |mean_b - mean_a| > 1.96 * se_difference
+
+When the gate is not met, the correct output is an explicit statement that the difference is within noise, not a smaller arrow or a hedged trend line.
+
+Additional gates:
+
+No trend line fitted through fewer than ~20 runs, or fewer than ~6 sessions for cold-start series. Slope estimates 
+
+on small samples are
+
+dominated by noise and will confidently display progress that does not exist.
+
+Minimum detectable effect should be surfaced to the user on request: "with your current volume, this view can 
+
+detect a change of roughly X
+
+points."
+
+Multiple comparisons: if the application scans many scenarios for "biggest improvement," some will cross threshold 
+
+by chance. Either correct for
+
+the number of scenarios tested or present the ranking without significance claims.
+
+9. Rendering rules
+
+9.1 Axis scaling
+
+Auto-fitting the y-axis to data min/max stretches whatever variation exists to fill the frame, so a plateau and a breakthrough render identically.
+
+Scale by variability instead, so that the visual size of a change tracks its size in units of the noise:
+
+mu, sigma = stats over FIXED trailing window (default: last 50 runs)
+
+span      = max(K * sigma, MIN_SPAN_PCT * mu)      // K = 3.5, MIN_SPAN_PCT = 0.04
+
+y_min     = min(mu - span, min(visible_points))
+
+y_max     = max(mu + span, max(visible_points))
+
+The 
+
+σ
+
+ window is fixed and does not follow the visible range. Zooming the x-axis must never rescale the 
+
+y-axis.
+
+Bars and area charts require a zero baseline; line and dot encodings do not.
+
+Keep the plot area near a 2:1 width:height ratio. Slope judgement is most accurate when the average segment sits 
+
+near 45°; wide-and-short
+
+charts flatten trends and narrow ones exaggerate them. Aggregate or scroll rather 
+
+than compressing more points into the same width.
+
+9.2 Show the noise floor
+
+This is what makes the chart self-calibrating and is more robust than any axis rule:
+
+Plot every individual run as a low-opacity dot behind the aggregate lines.
+
+Draw a shaded ±1
+
+σ
+
+ band around the rolling mean.
+
+Render PB as a step function, not a smoothed line — it is a ratchet, and slope through it is meaningless.
+
+Never smooth heavily without showing the raw points underneath.
+
+The resulting reading is immediate and needs no explanation: 
+
+clearing the band is progress; inside the band is a good day.
+
+9.3 Cross-scenario views
+
+Raw scores are not comparable across scenarios. Use percent change from baseline for progress views, z-scores for strength/weakness comparison,
+
+log scale where gains are multiplicative. Never mix transforms on one axis.
+
+10. Implementation checklist
+
+1. 
+
+Filter to one scenario and one cm/360 before computing anything.
+
+2. 
+
+Compute per-session: µ, 
+
+σ
+
+, n, schedule_index, fitted plateau P, tau, fatigue onset.
+
+3. 
+
+Compute 
+
+pb_surprise
+
+; deprecate raw PB trend lines.
+
+4. 
+
+Build the cold-start series; make it the default "skill over time" chart.
+
+5. 
+
+Apply the significance gate before any improvement language is emitted.
+
+6. 
+
+Set y-range by 
+
+σ
+
+ over a fixed window; hold it across zoom and pan.
+
+7. 
+
+Render raw runs as dots plus a ±1
+
+σ
+
+ band on every score chart.
+
+8. 
+
+Label windows as Form / Trend / Change vs baseline per §7; do not use "improvement" in the 1–7 day view.
+
+9. 
+
+Attach an uncertainty interval to every reported number. No bare point estimates.
+
+11. Anti-patterns
+
+Auto-fit min/max y-axis (default in most charting libraries — disable explicitly).
+
+Y-axis rescaling on zoom.
+
+Truncated bar charts.
+
+Raw PB compared across sessions of different length.
+
+Trend lines through fewer than ~20 runs.
+
+Pooling sensitivities, or pooling blocked and interleaved sessions in one performance metric.
+
+Treating within-session improvement as skill gain.
+
+Causal attribution of improvement to a single scenario's volume.
+
+Any notification triggered by a single session being worse than the last.
+
+12. Limitations of the evidence base
+
+Two caveats that should shape how confidently the application phrases its output:
+
+Domain transfer.
+
+ None of the cited work studies aim trainers. It comes from laboratory motor tasks, sport skills, and rehabilitation. The constructs
+
+— warm-up decrement, contextual interference, the learning/performance dissociation — are robust and general, but effect sizes and time
+
+constants for this specific task are unknown and should be estimated from the user's own data rather than assumed.
+
+Group effects, single subject.
+
+ Every result cited is a group-level average. The application operates on n = 1, where between-individual variation is
+
+large. Everything it reports is an estimate with wide uncertainty, and it should say so rather than presenting verdicts.
+
+13. References
+
+1. 
+
+Soderstrom, N. C., & Bjork, R. A. (2015). Learning versus performance: An integrative review. 
+
+Perspectives on Psychological Science
+
+, 10(2), 176–199.
+
+2. 
+
+Shea, J. B., & Morgan, R. L. (1979). Contextual interference effects on the acquisition, retention, and 
+
+transfer of a motor skill. 
+
+Journal of Experimental Psychology: Human
+
+Learning and Memory
+
+, 5, 
+
+179–187.
+
+3. 
+
+Magill, R. A., & Hall, K. G. (1990). A review of the contextual interference effect in motor skill 
+
+acquisition. 
+
+Human Movement Science
+
+, 9, 241–289.
+
+4. 
+
+Pauwels, L., Swinnen, S. P., & Beets, I. A. M. (2014). Contextual interference in complex bimanual skill 
+
+learning leads to better skill persistence. 
+
+PLOS ONE
+
+, 9(6),
+
+e100906.
+
+5. 
+
+Tsay, J. S., et al. (2023). Signatures of contextual interference in implicit sensorimotor adaptation. 
+
+Proceedings of the Royal Society B
+
+.
+
+6. 
+
+Wulf, G., & Shea, C. H. (2002). Principles derived from the study of simple skills do not generalize to 
+
+complex skill learning. 
+
+Psychonomic Bulletin & Review
+
+, 9(2), 185–
+
+211.
+
+7. 
+
+Adams, J. A. (1952). Warm-up decrement in performance on the pursuit-rotor. 
+
+American Journal of 
+
+Psychology
+
+, 65(3), 404–414.
+
+8. 
+
+Newell, K. M., et al. (2013). Task difficulty and the time scales of warm-up and motor learning. 
+
+Journal of Motor Behavior
+
+, 45(3).
+
+9. 
+
+Tufte, E. R. (1983). 
+
+The Visual Display of Quantitative Information
+
+. Graphics Press. (Lie factor.)
+
+10. 
+
+Cleveland, W. S. (1993). 
+
+Visualizing Data
+
+. Hobart Press. (Banking to 45 degrees.)

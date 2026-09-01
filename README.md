@@ -7,12 +7,12 @@ Yes, not AI. (Talking about this reqdme text not everything else)
 This was not planned to be public, this was purely for personal use, but since people where interested in the metrics I shared over personal dm's, more than enough people wanted me to give them access. This is beta build, locally run, opens in web browser.
 Full application is in the works.
 
-
+**
 Early TL:DR
-Stat viewer with science based approach, running in your browser. Enjoy.
+Stat viewer with science based approach, running in your browser. Enjoy.**
 
 
-Long text;
+**Long text;**
 
 
 This isn't ment to be popular, this is still personal use with the ability to extend on its use-cases. 
@@ -26,7 +26,7 @@ But if you have a question or request, dm on discord. Might answer you.
 
 Currently as of 23:15 01.09.2026, there's no active app or website that uses a science based approach to read your KovaaK's scores. Currently, most % increase or improvement metrics is based off of raw data without logic. This isn't the case for every current app/website out there, but none that I've seen or used is using a scientific approach to calculate the metrics of your kovaaks data. At least not saying it.
 
-This one does.
+_**This one does.**_
 
 By using (input study source you sheep) study metrics towards our kovaaks stats, we'll quickly see why adding raw % increase measured by score doesn't actually show what this app does;
 
@@ -51,19 +51,19 @@ This is a lot yes.
 however, we can still se early signs. These are marked on the scenario itself so you know you can't fully trust the calculation. You can use it as a ball park.
 
 
-short faq
-"Orb, when did tou become a coder??"
+**short faq**
+_"Orb, when did tou become a coder??"_
 never have been. This is all with the help of Claude Opus 5. I have no coding experience, only tons of ideas in my head that I wouldn't be able to put together without the use of Claude. (or paying someone thousands of dollars to implement every little thing I want)
 
-"If Claude is doing everything, couldn't all of this be fake"
-yeah, that's why it's personal use and will highley likely never be promoted in any way shape or form. 
+_"If Claude is doing everything, couldn't all of this be fake"_
+yeah, that's why it's personal use and will highly likely never be promoted in any way shape or form. 
 Until everything is checked properly by a human, this could all be pseudo science and completely of the mark for it's actual use.
 
 
 Thanks for your time.
 
 -------
-Everything below here is claudes doing. left it since ion wanna write everything myself yet. still lots work even when an AI is doing the hard part.
+Everything below here is claudes doing. left it since ion wanna write everything myself yet. still lots work even when an AI is doing the hard part. Some stuff are outdated and wrong, so take this next part with some sand. Every feature you should be able to view on the page itself.
 
 
 A local statistics app for KovaaK's aim trainer. It reads your `stats` folder and

@@ -373,6 +373,24 @@ card. All six are done and verified in the browser.
       there. Removing that would need a history rewrite and a force-push, which
       has not been done. — *v0.7.1*
 
+### v0.7.2 — three more fixes between batches
+
+Reported 2026-09-01, on top of v0.7.1. All three are done and verified in the
+browser.
+
+- [x] **Full width is now the only scenario-card layout.** The per-card
+      toggle is gone; every card renders chart-left, metrics-right, up to
+      1920px, unconditionally — same treatment `.scen-expanded` got. — *v0.7.2*
+- [x] **Sort dropdown reordered**: Recently played, Most data, Most played,
+      Biggest gain, Recommended to play, Least consistent, Longest since
+      played, Name. Since the sort choice isn't persisted, this also changes
+      the page's default sort on load, from Most played to Recently played.
+      — *v0.7.2*
+- [x] **`HANDOFF.md` moved to `L:\Claude\HANDOFF.md`**, outside the repo
+      folder, instead of being `.gitignore`d from inside it — a structural
+      guarantee rather than a convention. `release.py` and `publish.py` no
+      longer reference it. — *v0.7.2*
+
 ## Batch 11 — baseline page, benchmarks and imports  ← **next**
 
 Scenario list is a plain document in `planning/baseline/scenarios.md`.

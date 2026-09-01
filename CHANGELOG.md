@@ -5,6 +5,49 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.7.2 - 2026-09-01
+
+**TL;DR - three more fixes on top of v0.7.1. Every scenario card now renders
+chart-left, metrics-right at up to 1920px permanently - the "Full width"
+toggle is gone because it was being clicked every time anyway. The sort
+dropdown is reordered so "Recently played" is first (and is now what the page
+opens on, since the choice is never remembered between visits). And
+`HANDOFF.md` has moved out of the repo folder entirely, so it can no longer
+reach GitHub by any mechanism.**
+
+### Full width is now the only layout
+
+- **Every scenario card breaks out to up to 1920px**, chart on the left and
+  the metrics table on the right, with no toggle. The narrow stacked layout
+  was the "Full width" button's off-state; since the button was being pressed
+  on every card anyway, it is now just how a card looks - the same reasoning
+  that made `.scen-expanded` the permanent default two batches ago.
+- The effects lab's matching "Full width" button is gone too, for the same
+  reason: nothing left to preview a toggle state of.
+
+### Sort order
+
+- **The "Sort" dropdown is reordered**: Recently played, Most data, Most
+  played, Biggest gain, Recommended to play, Least consistent, Longest since
+  played, Name. Because the chosen sort is never persisted between visits,
+  this also changes what the page opens on - it was "Most played", it is now
+  "Recently played".
+- "Recommended to play" is not "needs more data" - it is a composite of a
+  declining trend, staleness, no baseline comparison yet, an under-powered run
+  count, and a high CV. "Most data (tightest measurement)" is the one that is
+  purely about interval width.
+
+### `HANDOFF.md` moved out of the repo folder
+
+- **It now lives at `L:\Claude\HANDOFF.md`**, one level above `KovaaksStats`,
+  instead of being merely `.gitignore`d from inside it. Being outside the repo
+  folder is a structural guarantee that no `git add`, publish step or future
+  change to `.gitignore` can accidentally reach it - being gitignored inside
+  the repo only ever relied on nobody force-adding it.
+- `release.py` and `publish.py` no longer reference it at all.
+
+---
+
 ## v0.7.1 - 2026-09-01
 
 **TL;DR - six fixes you asked for. A celebration now lands in the middle of the

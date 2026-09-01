@@ -125,10 +125,6 @@ let cmTablesCollapsed = true;
 let dataVersion = null;
 let listLimit = 5;
 let listShowAll = false;
-// Scenario cards are expanded by default now, so the only card size worth
-// tracking is which ones have been pushed out to full width. Keyed like
-// sessionAvg (trimmed, lowercased scenario name).
-const fullWidthScenarios = new Set();
 // A cm chip pins THAT ONE card to that sensitivity. It used to set the global
 // Specific-cm filter, which silently re-filtered every other scenario on the
 // page - one click, and the whole view had moved. It is a per-card toggle:
@@ -1545,16 +1541,17 @@ function render(){
       : (pinMissed
           ? ' · <span class="cmpin miss" title="Nothing at '+pinCm+'cm inside this window, so the card is showing every cm. Click to clear.">no '+pinCm+'cm runs here ✕</span>'
           : ' · <span class="cmpin" title="This card only — everything else on the page is untouched. Click to show every cm again.">'+pinCm+'cm only ✕</span>');
-    const full = fullWidthScenarios.has(key);
     // Offered whenever the scenario has been played at more than one
     // sensitivity at all. Whether there is enough of each to compare is the
     // panel's job to say, and saying it is more use than a missing button.
     const multiCm = new Set((r.rsAll || r.rs).filter(x => x.cm360 != null)
                                              .map(x => Math.round(x.cm360))).size > 1;
     const cmOpen = cmPanelOpen.has(key);
-    return '<div class="scen scen-expanded'+(full?' scen-full':'')+'" data-scen="'+esc(key)+'"><h3>'+
+    // Every card renders chart-left, metrics-right at up to 1920px (.scen-full)
+    // - it used to be behind a per-card "Full width" toggle that was being
+    // clicked every time anyway, same story as .scen-expanded below it.
+    return '<div class="scen scen-expanded scen-full" data-scen="'+esc(key)+'"><h3>'+
       esc(r.scen)+' '+infoIcon+warnIcon+' '+sessBadge+
-      '<button type="button" class="minibtn fullBtn" data-scen="'+esc(key)+'">'+(full?'⤡ Exit full width':'⤢ Full width')+'</button>'+
       (multiCm ? '<button type="button" class="minibtn cmToggle'+(cmOpen?' on':'')+'" data-scen="'+esc(key)+'">'+
         (cmOpen?'Hide score by cm':'Score by cm')+'</button>' : '')+'</h3>'+
       '<p class="meta">'+v.st.n+' runs'+(v.zeroRuns ? ' <span class="zerotag" title="Runs that scored 0 — a NeverMiss that ended on the first shot, for example. Drawn on the chart, never counted in a percentage.">+'+v.zeroRuns+' scored 0</span>' : '')+' · spread '+fmt(v.st.cv)+'% · last played '+v.rs[v.rs.length-1].date.toISOString().slice(0,10)+
@@ -3797,13 +3794,6 @@ $('#list').addEventListener('click', e => {
   if(warnBtn){
     const c = SCEN_CAVEATS[warnBtn.dataset.scen];
     if(c) openSideTab(c.title, c.html, warnBtn);
-    return;
-  }
-  const fullBtn = e.target.closest('.fullBtn');
-  if(fullBtn){
-    const key = fullBtn.dataset.scen;
-    if(fullWidthScenarios.has(key)) fullWidthScenarios.delete(key); else fullWidthScenarios.add(key);
-    keepInView(key);
     return;
   }
   const card = e.target.closest('.scen[data-scen]');

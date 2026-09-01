@@ -66,7 +66,7 @@ function makeRuns(opts){
   return out;
 }
 
-const labState = {logEvery: false, resetSpam: false, idleSession: false, full: false, pinned: false};
+const labState = {logEvery: false, resetSpam: false, idleSession: false, pinned: false};
 
 function labRebuild(){
   RUNS = makeRuns(labState);
@@ -87,7 +87,7 @@ function labCard(){
   const usable = rs.filter(x => x.score > 0);
   const st = stats(usable.map(x => x.score));
   document.getElementById('labCard').innerHTML =
-    '<div class="scen scen-expanded' + (labState.full ? ' scen-full' : '') + '"><h3>' +
+    '<div class="scen scen-expanded scen-full"><h3>' +
       esc(SCEN) + '</h3>' +
       '<p class="meta">' + st.n + ' runs · spread ' + fmt(st.cv) + '% · synthetic</p>' +
       '<div class="scenbody"><div class="scennum">' +
@@ -166,12 +166,6 @@ const FIRE = {
   },
   resession: () => labRebuild(),
 
-  cardsize: () => {
-    labState.full = !labState.full;
-    document.querySelector('[data-fire="cardsize"]').textContent =
-      labState.full ? '⤡ Exit full width' : '⤢ Full width';
-    labCard();
-  },
   pinchip: () => { labState.pinned = !labState.pinned; labCard(); }
 };
 

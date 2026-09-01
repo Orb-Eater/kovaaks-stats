@@ -221,10 +221,11 @@ tr:last-child td{border-bottom:none}
 .scen-expanded .spark{max-width:1100px}
 .scen-expanded .scalenote{max-width:1100px}
 
-/* Full width: one card breaks out of the 1180px column, up to 1920px. The page
-   around it does not move - this is a closer look at one scenario, not a layout
-   mode. The breakout is inset from the viewport so it never collides with the
-   scrollbar. */
+/* Every scenario card breaks out of the 1180px column, up to 1920px - it used
+   to be behind a per-card "Full width" toggle that was being clicked every
+   time anyway, same story as .scen-expanded above it. The page around it does
+   not move. The breakout is inset from the viewport so it never collides with
+   the scrollbar. */
 .scen-full{--fw:min(1920px,calc(100vw - 60px));
   width:var(--fw);margin-left:calc(50% - var(--fw)/2);margin-right:calc(50% - var(--fw)/2)}
 /* The numbers and the chart sit side by side, which is the only honest way to
@@ -243,7 +244,7 @@ tr:last-child td{border-bottom:none}
 .scen-full .spark{max-width:min(1500px,calc((100vh - 240px) * 2));max-height:calc(100vh - 240px)}
 .scen-full .scalenote{max-width:1100px}
 @media(max-width:1300px){
-  /* Below this there is no width to break out into, so full width just means
+  /* Below this there is no width to break out into, so a card just means
      "as wide as the page", stacked. */
   .scen-full .scenbody{grid-template-columns:1fr;grid-template-areas:"nums" "chart" "key"}
 }

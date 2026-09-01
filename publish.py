@@ -47,11 +47,8 @@ CHANNEL_TAG = {"base": "base", "beta": "beta"}
 CHANNEL_TITLE = {"base": "KovaaK's stats %s (base)",
                  "beta": "KovaaK's stats %s (beta)"}
 
-# Per-install state must never end up inside a published zip. HANDOFF.md is in
-# here too: it is internal working notes for whoever picks the project up, not
-# documentation for someone who just wants to run the app.
-EXCLUDE = {"cache", "logs", "__pycache__", ".browser-opened", "config.json",
-           "HANDOFF.md"}
+# Per-install state must never end up inside a published zip.
+EXCLUDE = {"cache", "logs", "__pycache__", ".browser-opened", "config.json"}
 
 
 def gh(*args, check=True):

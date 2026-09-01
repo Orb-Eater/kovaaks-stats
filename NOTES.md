@@ -462,12 +462,13 @@ title and body; `WHATS-NEW.txt` becomes the release notes automatically.
 `publish.py` does nothing without `--yes` - it prints the `gh` commands it would
 run and exits. It never pushes commits: that is `git push`, deliberately separate.
 
-**Nothing personal ships.** `make_zip` drops `cache/`, `logs/`, `config.json`,
-`__pycache__`, `.browser-opened` and `HANDOFF.md`, then writes a fresh
-`config.json` with an empty `stats_folder`. Belt and braces: `release.py` already
-writes a blank one at freeze time. It used to copy the working copy's folder,
-which baked one person's path into every build and overrode the choice the user
-of that release had already made.
+**Nothing personal ships.** `make_zip` drops `cache/`, `logs/`, `config.json` and
+`__pycache__`/`.browser-opened`, then writes a fresh `config.json` with an empty
+`stats_folder`. Belt and braces: `release.py` already writes a blank one at
+freeze time. It used to copy the working copy's folder, which baked one
+person's path into every build and overrode the choice the user of that release
+had already made. `HANDOFF.md` lives outside the repo entirely now (see below),
+so it was never a candidate for either list.
 
 ## What the app promises about privacy
 
@@ -516,9 +517,10 @@ behind an Expand button that was pressed every time anyway. The class is kept
 rather than folded into `.scen` because the session panel and the cm breakdown
 also use `.scen`, and those should not grow.
 
-`.scen-full` is the new one: a full-bleed breakout up to 1920px, inset from the
-viewport so it never collides with the scrollbar. The numbers move beside the
-chart via grid areas. The chart keeps its 2:1 aspect - CHART-SCALING.md is
+`.scen-full` is applied to every card too, for the same reason - it used to be
+behind a per-card "Full width" button that was being clicked every time anyway.
+It is a full-bleed breakout up to 1920px, inset from the viewport so it never
+collides with the scrollbar. The numbers move beside the chart via grid areas. The chart keeps its 2:1 aspect - CHART-SCALING.md is
 explicit that the aspect is doing work, so stretching it to fill the width would
 undo the thing the whole document argues for - and it is capped by viewport
 height as well, since 1920px at 2:1 is a 960px-tall chart.

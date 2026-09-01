@@ -51,7 +51,7 @@ STAT_FUNCS = [
     "computeCmClusters", "computeCmDeltas", "getActivePool", "chartScale",
 ]
 
-COPY_FILES = ["server.py", "start.bat", "install.bat", "LICENSE", "README.md", "HANDOFF.md",
+COPY_FILES = ["server.py", "start.bat", "install.bat", "LICENSE", "README.md",
               "CHANGELOG.md", "CALCULATIONS.md", "MEASUREMENT-SPEC.md",
               "CHART-SCALING.md", "NOTES.md"]
 COPY_DIRS = ["app"]

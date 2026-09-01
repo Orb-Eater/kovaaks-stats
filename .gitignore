@@ -2,12 +2,6 @@
 # and machine-specific - it must never be committed.
 config.json
 
-# HANDOFF.md is the working notebook for this project: what is half-finished,
-# what was decided and why, what to pick up next. It is kept current and it is
-# deliberately private - it is written for one reader, not for whoever clones
-# the repo. Already excluded from published zips by publish.py; this keeps it
-# out of the repo as well.
-HANDOFF.md
 cache/
 logs/
 .browser-opened

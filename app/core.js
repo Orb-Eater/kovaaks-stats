@@ -1516,6 +1516,10 @@ function render(){
     // Stashed for the drawer: the click handler runs long after this render,
     // and recomputing it there would mean re-deriving the whole row.
     SCEN_CAVEATS[key] = {title: r.scen, html: caveatsHtml(caveats)};
+    // Stashed the same way, for the same reason: the export button's click
+    // handler fires long after this render pass, against whichever card is
+    // still on screen.
+    SCEN_EXPORT[key] = {scen: r.scen, v, clusters: analysisClusters};
     const warnIcon = caveats.length
       ? '<button type="button" class="warnsym scenWarn" data-scen="'+esc(key)+'" ' +
         'title="'+caveats.length+' thing'+(caveats.length===1?'':'s')+' to know about this scenario — click to read">⚠</button>'
@@ -1553,7 +1557,10 @@ function render(){
     return '<div class="scen scen-expanded scen-full" data-scen="'+esc(key)+'"><h3>'+
       esc(r.scen)+' '+infoIcon+warnIcon+' '+sessBadge+
       (multiCm ? '<button type="button" class="minibtn cmToggle'+(cmOpen?' on':'')+'" data-scen="'+esc(key)+'">'+
-        (cmOpen?'Hide score by cm':'Score by cm')+'</button>' : '')+'</h3>'+
+        (cmOpen?'Hide score by cm':'Score by cm')+'</button>' : '')+
+      // Server-only: there's nowhere on disk to write the CSV to without it.
+      (SERVER_MODE ? '<button type="button" class="minibtn exportBtn" data-scen="'+esc(key)+'">Export data</button>' : '')+
+      '</h3>'+
       '<p class="meta">'+v.st.n+' runs'+(v.zeroRuns ? ' <span class="zerotag" title="Runs that scored 0 — a NeverMiss that ended on the first shot, for example. Drawn on the chart, never counted in a percentage.">+'+v.zeroRuns+' scored 0</span>' : '')+' · spread '+fmt(v.st.cv)+'% · last played '+v.rs[v.rs.length-1].date.toISOString().slice(0,10)+
       (v.cells.length>1 ? ' · '+v.cells.length+' cm cells' : '')+pinNote+'</p>'+
       '<div class="scenbody"><div class="scennum">'+
@@ -1598,6 +1605,9 @@ function render(){
 // Everything the card would otherwise have to say in 12px hover text. Returned
 // as a list so the icon can say how many there are before you open it.
 const SCEN_CAVEATS = {};
+// Per-card data for the "Export data" button (Batch 11) — same stash pattern
+// as SCEN_CAVEATS above, and for the same reason.
+const SCEN_EXPORT = {};
 function caveatsHtml(list){
   if(!list.length) return '<p>Nothing to flag on this one.</p>';
   return list.map(c => '<h3>' + c.t + '</h3><p>' + c.b + '</p>').join('') +
@@ -3179,6 +3189,67 @@ function downloadLog(){
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
 }
 
+// One field, CSV-quoted only when it needs to be — same rule as RFC 4180.
+function csvField(v){
+  if(v == null) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function csvRow(cells){ return cells.map(csvField).join(','); }
+
+// Everything a scenario's card shows, as two CSV tables in one file: the raw
+// runs behind it, then every figure the card computed from them — so the
+// app's own maths can be checked independently of trusting its display of it
+// (Batch 11). Deliberately built from what's already in memory (the same `v`
+// the card just rendered) rather than re-reading original CSVs: the fields
+// that drops (accuracy/hits/TTK) feed none of the app's calculations, so they
+// wouldn't add anything to audit.
+async function exportScenario(key, btn){
+  const rec = SCEN_EXPORT[key];
+  if(!rec) return;
+  const {scen, v, clusters} = rec;
+  const runs = RUNS.filter(x => x.scen === scen)
+                    .sort((a,b) => a.date - b.date);
+  const lines = ['Runs', csvRow(['date', 'score', 'cm360', 'sensScale', 'duration_s', 'reset'])];
+  runs.forEach(r => lines.push(csvRow([r.date.toISOString(), r.score, r.cm360, r.sensScale, r.dur, r.reset ? 1 : 0])));
+  lines.push('', 'Calculations (this window)',
+    csvRow(['metric', 'value', 'vs_baseline_pct', 'vs_baseline_se', 'early_baseline']));
+  const stRow = (label, valueKey, changeKey) => {
+    const chg = v[changeKey];
+    lines.push(csvRow([label, v.st[valueKey],
+      chg ? chg.pct : '', chg && chg.se != null ? chg.se : '', chg && chg.early ? 1 : '']));
+  };
+  lines.push(csvRow(['runs_in_window', v.st.n, '', '', '']));
+  lines.push(csvRow(['record_PB', v.st.record, '', '', '']));
+  stRow('ceiling_p90', 'ceiling', 'ceiling');
+  stRow('typical_trimmed', 'typical', 'typical');
+  stRow('floor_p10', 'floor', 'floor');
+  lines.push(csvRow(['mean', v.st.mean, '', '', '']));
+  lines.push(csvRow(['median', v.st.med, '', '', '']));
+  lines.push(csvRow(['spread_cv_pct', v.st.cv, '', '', '']));
+  lines.push(csvRow(['n_required_per_side', v.nRequired, '', '', '']));
+  lines.push(csvRow(['powered', v.powered ? 1 : 0, '', '', '']));
+  lines.push('', 'Per-cm-cluster cells',
+    csvRow(['cm_cluster', 'n_window', 'n_baseline', 'ceiling_pct', 'typical_pct', 'floor_pct', 'powered']));
+  v.cells.forEach(c => {
+    const label = c.cluster >= 0 && clusters[c.cluster] ? clusters[c.cluster].label : 'all cm';
+    lines.push(csvRow([label, c.w.n, c.b.n,
+      c.ceiling ? c.ceiling.pct : '', c.typical ? c.typical.pct : '', c.floor ? c.floor.pct : '',
+      c.powered ? 1 : 0]));
+  });
+  const label = btn.textContent;
+  try {
+    const resp = await fetch('api/export', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scenario: scen, csv: lines.join('\n')})
+    });
+    btn.textContent = resp.ok ? 'Exported ✓' : 'Export failed';
+  } catch(e){
+    btn.textContent = 'Export failed';
+  }
+  setTimeout(() => { btn.textContent = label; }, 1800);
+}
+
 function applyPage(){
   $('#pageTabConsistency').classList.toggle('active', currentPage==='consistency');
   $('#pageTabBenchmarks').classList.toggle('active', currentPage==='benchmarks');
@@ -3794,6 +3865,11 @@ $('#list').addEventListener('click', e => {
   if(warnBtn){
     const c = SCEN_CAVEATS[warnBtn.dataset.scen];
     if(c) openSideTab(c.title, c.html, warnBtn);
+    return;
+  }
+  const exportBtn = e.target.closest('.exportBtn');
+  if(exportBtn){
+    exportScenario(exportBtn.dataset.scen, exportBtn);
     return;
   }
   const card = e.target.closest('.scen[data-scen]');

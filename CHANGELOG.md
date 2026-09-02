@@ -5,6 +5,61 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.8.0 - 2026-09-02
+
+**TL;DR - the app can now update itself. `start.bat` checks GitHub before every
+launch and quietly applies a newer beta if one exists, with a backup and a
+rollback if anything goes wrong. `install.bat`/`start.bat` now keep a log file
+so a broken run can be diagnosed after the fact instead of over chat. Frozen
+releases are tidied down to two files at the top level - everything else moved
+into `internal\`. And every scenario card has an "Export data" button that
+writes its runs and every calculated figure to a CSV next to the app.**
+
+### Auto-updater
+
+- **`internal\updater.py`**, run by `start.bat` before the server launches.
+  Checks the `beta` release on GitHub (~5s timeout - a hung connection can
+  never stall startup), and if it is newer, downloads, verifies, and applies
+  it.
+- **Backs up before touching anything**: `internal\` is copied to
+  `internal.bak\` first, so a bad or interrupted apply can always be undone.
+  Rolls back automatically on any failure mid-copy.
+- **Refuses to run against a dev checkout** (no `VERSION` file) - nothing to
+  update in a working copy.
+- **Never overwrites `config.json`**, your stats folder path, or anything
+  currently executing (`install.bat`/`start.bat` themselves).
+- Toggle with `"auto_update"` in `config.json` - on by default.
+
+### Error logging
+
+- `install.bat` and `start.bat` now log every Python-detection step, the
+  resolved Python command, and (for `start.bat`) the server's exit code, to
+  `internal\logs\install.log` / `internal\logs\start.log`.
+- `server.py` mirrors its own startup checkpoints - version, stats-folder
+  usability, port conflicts, the serving URL, and a clean stop - to
+  `logs\server.log`.
+
+### Release folder tidy-up
+
+- A frozen release now shows only `install.bat` and `start.bat` at the top
+  level. Everything else - `server.py`, `app/`, the docs, `config.json` -
+  moved one level down into `internal\`.
+- User-facing output (the export folder below) still lands at the top level
+  regardless of which layout is running, via a new `RELEASE_ROOT` in
+  `server.py`.
+
+### Per-scenario raw data export
+
+- **"Export data" button** next to "Score by cm" on every scenario card.
+  Builds a two-section CSV - every run (date, score, cm/360, sensitivity,
+  duration, reset flag) plus every calculated figure already shown on that
+  card (ceiling/typical/floor, spread, per-cm-cluster breakdown) - and writes
+  it to `SCENARIO DATA EXPORT\<scenario>.csv` next to the app.
+- Nothing is recomputed for the export; it is the same numbers already on
+  screen, so the file can be used to audit the app's own maths.
+
+---
+
 ## v0.7.2 - 2026-09-01
 
 **TL;DR - three more fixes on top of v0.7.1. Every scenario card now renders

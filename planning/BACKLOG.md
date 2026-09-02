@@ -391,7 +391,66 @@ browser.
       guarantee rather than a convention. `release.py` and `publish.py` no
       longer reference it. — *v0.7.2*
 
-## Batch 11 — baseline page, benchmarks and imports  ← **next**
+## Batch 11 — updater, error logging, folder tidy-up, raw data export
+
+Was "Batch 14"; promoted to Batch 11 on 2026-09-02 when the old Batch
+11/12/13 were parked (see "Future plans" below) until the app is otherwise
+finished. Built and verified 2026-09-02.
+
+- [x] **Auto-updater.** New `updater.py`, run by `start.bat` before
+      `server.py` launches. Checks the `beta` release via the GitHub API
+      (~5s timeout), backs up `internal\` to `internal.bak\` before applying,
+      verifies the downloaded zip with `zipfile.testzip()`, and rolls back
+      from the backup on any mid-apply failure. Refuses to run against the
+      dev checkout (`VERSION` missing). Handles both the new nested
+      (`internal/`) and the still-live flat zip layout on the download side,
+      always merging into `internal\` on disk. Toggleable via
+      `auto_update` in `config.json` (on by default). Verified: dev-mode
+      refusal, a real update round-trip (flat beta zip → nested install,
+      `config.json`/port preserved), a corrupted-zip abort, and a
+      mid-copy failure rolling back cleanly.
+- [x] **Error logging for `install.bat`/`start.bat`.** Both scripts append
+      timestamped checkpoints to `internal\logs\install.log` /
+      `internal\logs\start.log` (script start, each Python-detection step,
+      the resolved Python command, exit codes). `server.py`'s own `main()`
+      now also writes to `logs\server.log` (start/version, stats-folder
+      usability, port conflicts, serving URL, stop).
+- [x] **Tidy the release folder.** `release.py` now nests everything except
+      `install.bat`/`start.bat` under `internal\` in every frozen release;
+      the working copy stays flat. New `RELEASE_ROOT` in `server.py` lets
+      user-facing output (the export folder below) land at the top level
+      regardless of which layout is running.
+- [x] **Per-scenario raw data export tab.** "Export data" button next to
+      "Score by cm" on each scenario card, builds a two-section CSV (runs +
+      every calculated figure shown on the card) client-side and POSTs it to
+      a new `/api/export` endpoint, which writes it to
+      `SCENARIO DATA EXPORT/<scenario>.csv` at the release root.
+- [ ] **Real beta round-trip, not yet done.** Every updater test so far went
+      old-flat-beta (the one actually published on GitHub) → new-nested-local
+      (a frozen copy of this working tree). Nobody has published a beta built
+      from this new nested `release.py` output yet, so a genuine
+      post-Batch-11 → post-Batch-11 update has never actually run. Needs one
+      `release.py` + `publish.py --beta` round-trip before this ships to you
+      for real.
+
+---
+
+## Open questions
+
+Every one of these ends in a bare **`=`**. Write your answer after it; I read them
+at the start of the next session. Answered ones move to *Answered* at the bottom.
+
+*(none open right now)*
+
+---
+
+## Future plans — after the app is otherwise finished
+
+Renamed and parked here 2026-09-02: real, planned work, just not near-term.
+**Do not raise these unprompted or ask about them each session** — they stay
+here until Orb Eater says to pull one back into the active batch list.
+
+### Playlist API update *(was Batch 11 — baseline page, benchmarks and imports)*
 
 Scenario list is a plain document in `planning/baseline/scenarios.md`.
 
@@ -414,14 +473,15 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
 - [ ] **Scenario testing overhaul — deferred, and out of scope for the GitHub
       release.** Your call, 2026-09-01: it gets its own plan later and does not
       hold anything up. The rename and the Viscose S2 data are in place; nothing
-      else here waits on it.
+      else here waits on it. **2026-09-02:** Claude Design is putting together a
+      mockup for this — we don't build anything here until that lands.
 - [ ] **Playlist import via share code** (e.g. `KovaaKsPlunderingOlivegreenClutch`).
       Outbound API calls are approved, so this resolves server-side against
       KovaaK's rather than needing an offline export. First feature to make a
       network call — the README's privacy wording was updated to match, and it
       must stay true: run data still never leaves the machine.
 
-## Batch 12 — timeframe comparison tools
+### Comparison tools *(was Batch 12 — timeframe comparison tools)*
 
 - [ ] Compare an arbitrary timeframe against the baseline sitting behind it
 - [ ] Compare month X vs the previous month
@@ -430,7 +490,7 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
       [MEASUREMENT-SPEC.md §7](../MEASUREMENT-SPEC.md) — the 7-day view must stop
       using the word "improvement"
 
-## Batch 13 — personal calibration and ADHD mode
+### ADHD mode update *(was Batch 13 — personal calibration and ADHD mode)*
 
 - [ ] **Warm-up calibration on first launch.** `WARMUP_DROP: 2` is a guess, and
       the spec says time constants for this task are unknown and must be estimated
@@ -444,29 +504,14 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
 
 ---
 
-## Open questions
-
-Every one of these ends in a bare **`=`**. Write your answer after it; I read them
-at the start of the next session. Answered ones move to *Answered* at the bottom.
-
-- **[?] Anything you want changed before the GitHub push?** Your instruction is
-  to push once **every currently planned batch is finished** — that is Batches 9
-  through 13. Batch 9 shipped as v0.6.0; 10, 11, 12 and 13 are still to go, so
-  v0.4.0, v0.5.0 and v0.6.0 are all sitting committed and tagged locally,
-  unpushed, waiting for that. Say if you would rather have them up sooner.
-  =
-
-- **[?] What should "Scenario testing" become?** You said you want to overhaul it
-  yourself. The rename and the Viscose S2 data are in place, so there is a real
-  thing to change rather than a blank page. Tell me the shape you want — per-rank
-  progress, what is closest to the next rank, a weakest-link view, something else
-  — and I will build it.
-  =
-
----
-
 ## Answered
 
+- **GitHub push timing, overridden** → the standing "push once Batches 9–13 are
+  all done" rule was set aside once, 2026-09-02: pushed everything sitting
+  local at the time (`master` + tags v0.4.0–v0.7.2) instead of waiting.
+  v0.7.2 also published as GitHub `beta` (pre-release); v0.3.1 stays `base`
+  ("Latest") until promoted. The rule itself isn't repealed — it applies again
+  from here unless told otherwise.
 - **Dev stats folder** → moved to `L:\Claude\Kovaaks Folder\stats` (21,453 runs).
 - **Log-every-run suggestion** → yes, shown once when the setting is off, with the
   clutter trade-off stated; dismissed forever with one click; remembered per

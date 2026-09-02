@@ -32,6 +32,11 @@ APP_DIR = os.path.join(ROOT, "app")
 LOG_DIR = os.path.join(ROOT, "logs")
 CACHE_DIR = os.path.join(ROOT, "cache")
 CONFIG_PATH = os.path.join(ROOT, "config.json")
+# A frozen release nests server.py (and everything else internal) under
+# internal/ (Batch 11 folder tidy-up), so a user-facing folder like the data
+# export belongs one level up, next to install.bat/start.bat. The working
+# copy has no internal/ parent and stays flat.
+RELEASE_ROOT = os.path.dirname(ROOT) if os.path.basename(ROOT).lower() == "internal" else ROOT
 
 # stats_folder is intentionally empty: you pick your own folder in the app on
 # first launch, and it gets remembered here afterwards.
@@ -40,6 +45,7 @@ DEFAULT_CONFIG = {
     "port": 8765,
     "scan_interval_seconds": 5,
     "open_browser": True,
+    "auto_update": True,
 }
 
 CONFIG = dict(DEFAULT_CONFIG)
@@ -852,6 +858,22 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json({"error": err}, 500)
             return self._json({"folder": folder or ""})
 
+        if path == "/api/export":
+            try:
+                data = self._body()
+            except Exception:
+                return self._json({"error": "bad payload"}, 400)
+            scen = re.sub(r"[^A-Za-z0-9\-_. ]", "", str(data.get("scenario", "scenario")))[:120].strip() or "scenario"
+            csv_text = str(data.get("csv", ""))
+            export_dir = os.path.join(RELEASE_ROOT, "SCENARIO DATA EXPORT")
+            os.makedirs(export_dir, exist_ok=True)
+            try:
+                with open(os.path.join(export_dir, "%s.csv" % scen), "w", encoding="utf-8", newline="") as f:
+                    f.write(csv_text)
+            except OSError as e:
+                return self._json({"error": str(e)}, 500)
+            return self._json({"ok": True})
+
         if path != "/api/log":
             return self._json({"error": "not found"}, 404)
         try:
@@ -872,6 +894,18 @@ class Handler(SimpleHTTPRequestHandler):
         return self._json({"ok": True})
 
 
+def log_startup(msg):
+    """Mirrors a key startup line to logs/server.log, so a user-end failure
+    (bad stats folder, port clash, crash) can be read after the fact instead
+    of needing to be reproduced live over chat (Batch 11)."""
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        with open(os.path.join(LOG_DIR, "server.log"), "a", encoding="utf-8") as f:
+            f.write("%s\t%s\n" % (datetime.now().isoformat(timespec="seconds"), msg))
+    except OSError:
+        pass
+
+
 def main():
     global CONFIG
     CONFIG = load_config()
@@ -879,6 +913,7 @@ def main():
     os.makedirs(LOG_DIR, exist_ok=True)
 
     print("KovaaK's stats server")
+    log_startup("server starting, version %s" % APP_VERSION)
 
     index = StatsIndex()
     if folder and folder_is_usable(folder)[0]:
@@ -887,9 +922,12 @@ def main():
         t0 = time.time()
         index.scan_guarded(verbose=True)
         print("+ %d runs ready in %.1fs" % (len(index.by_file), time.time() - t0))
+        log_startup("stats folder ok: %s (%d runs)" % (folder, len(index.by_file)))
     else:
         if folder:
-            print("  ! saved folder is unusable (%s)" % folder_is_usable(folder)[1])
+            reason = folder_is_usable(folder)[1]
+            print("  ! saved folder is unusable (%s)" % reason)
+            log_startup("saved stats folder unusable: %s (%s)" % (folder, reason))
         found = detect_stats_folders()
         if found:
             print("  found %d likely stats folder(s); pick one in the app:" % len(found))
@@ -912,6 +950,7 @@ def main():
         print("  This app is most likely already running in another window -")
         print("  open http://127.0.0.1:%d/ instead of starting it again." % port)
         print("  If something else owns that port, change \"port\" in config.json.")
+        log_startup("port %d unavailable%s" % (port, detail))
 
     if port_in_use(port):
         busy("")
@@ -925,6 +964,7 @@ def main():
     print("+ serving %s" % url)
     print("  full app: %s   simple: %ssimple.html" % (url, url))
     print("  watching for new runs every %ss - Ctrl+C to stop" % interval)
+    log_startup("serving %s" % url)
     # Restarting the server repeatedly used to pile up identical tabs. Python
     # cannot ask a browser to focus an existing tab, so instead: only auto-open
     # if we haven't opened this URL recently (a restart within the window almost
@@ -937,6 +977,7 @@ def main():
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\n+ stopped")
+        log_startup("stopped (Ctrl+C)")
 
 
 if __name__ == "__main__":

@@ -51,12 +51,25 @@ STAT_FUNCS = [
     "computeCmClusters", "computeCmDeltas", "getActivePool", "chartScale",
 ]
 
-COPY_FILES = ["server.py", "start.bat", "install.bat", "LICENSE", "README.md",
+COPY_FILES = ["server.py", "updater.py", "LICENSE", "README.md",
               "CHANGELOG.md", "CALCULATIONS.md", "MEASUREMENT-SPEC.md",
               "CHART-SCALING.md", "NOTES.md"]
 COPY_DIRS = ["app"]
+# Stay visible at the top of a frozen release (Batch 11 folder tidy-up) - the
+# only two files a user should ever need to look at. Everything in COPY_FILES/
+# COPY_DIRS above lands one level down, in internal/, instead.
+TOP_FILES = ["start.bat", "install.bat"]
 # generated per-install state - never inherited from the working copy
 SKIP = {"cache", "logs", "__pycache__", "releases", "config.json"}
+
+
+def content_root(folder):
+    """Where server.py/app/config.json/etc actually live inside `folder`.
+
+    A frozen release nests them under internal/ (Batch 11); the working copy
+    (`folder == ROOT`) has no such subfolder and stays flat."""
+    inner = os.path.join(folder, "internal")
+    return inner if os.path.isdir(inner) else folder
 
 
 def existing_versions():
@@ -150,7 +163,12 @@ def build_hash(folder):
     """One hash for a build: only the files that actually ship, in a stable
     order. Restricted to COPY_FILES + COPY_DIRS so that hashing the working copy
     and hashing a freeze of it give the same answer - otherwise `dev` would never
-    match the release made from it and the number would prove nothing."""
+    match the release made from it and the number would prove nothing.
+
+    Hashed relative to content_root(folder): a frozen release's shipped files
+    live under internal/, the working copy's live at its own root, and the two
+    need to agree file-for-file for that dev/release comparison to mean anything."""
+    folder = content_root(folder)
     h = hashlib.sha256()
     paths = []
     for f in COPY_FILES:
@@ -171,7 +189,7 @@ def build_hash(folder):
 
 
 def _row(label, folder, port):
-    core = os.path.join(folder, "app", "core.js")
+    core = os.path.join(content_root(folder), "app", "core.js")
     return {
         "version": label,
         "port": port,
@@ -190,7 +208,7 @@ def verify():
         d = os.path.join(RELEASES, "v" + name)
         port = "?"
         try:
-            with open(os.path.join(d, "config.json"), encoding="utf-8") as f:
+            with open(os.path.join(content_root(d), "config.json"), encoding="utf-8") as f:
                 port = json.load(f).get("port", "?")
         except Exception:
             pass
@@ -260,15 +278,23 @@ def main():
             return 1
         shutil.rmtree(dest)
     os.makedirs(dest)
+    # Only the two .bat files sit at the top of a frozen release (Batch 11
+    # folder tidy-up); everything else goes into internal/, out of the way.
+    inner = os.path.join(dest, "internal")
+    os.makedirs(inner)
 
-    for f in COPY_FILES:
+    for f in TOP_FILES:
         src = os.path.join(ROOT, f)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(dest, f))
+    for f in COPY_FILES:
+        src = os.path.join(ROOT, f)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(inner, f))
     for d in COPY_DIRS:
         src = os.path.join(ROOT, d)
         if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(dest, d),
+            shutil.copytree(src, os.path.join(inner, d),
                             ignore=shutil.ignore_patterns(*SKIP))
 
     port = port_for(version)
@@ -278,29 +304,30 @@ def main():
     # user had already chosen for that release. Starting empty means the app does
     # what it does on a fresh install: offers the Steam folders it detected, and
     # remembers the choice in this release's own config.json from then on.
-    with open(os.path.join(dest, "config.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(inner, "config.json"), "w", encoding="utf-8") as f:
         json.dump({"stats_folder": "", "port": port,
-                   "scan_interval_seconds": 5, "open_browser": True}, f, indent=2)
-    with open(os.path.join(dest, "VERSION"), "w", encoding="utf-8") as f:
+                   "scan_interval_seconds": 5, "open_browser": True,
+                   "auto_update": True}, f, indent=2)
+    with open(os.path.join(inner, "VERSION"), "w", encoding="utf-8") as f:
         f.write(version + "\n")
 
 
     section = changelog_section(version)
     if section:
-        with open(os.path.join(dest, "WHATS-NEW.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(inner, "WHATS-NEW.txt"), "w", encoding="utf-8") as f:
             f.write(section + "\n")
         print("+ WHATS-NEW.txt written from CHANGELOG.md")
     else:
         print("! no '## v%s' section in CHANGELOG.md - add one so this release" % version)
         print("  says what changed. Writing a placeholder for now.")
-        with open(os.path.join(dest, "WHATS-NEW.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(inner, "WHATS-NEW.txt"), "w", encoding="utf-8") as f:
             f.write("## v%s\n\n(no changelog entry written)\n" % version)
 
     # Stamped last, once every other shipped file is in place, so the hash the
     # page reports is the hash --verify computes. Baked in rather than fetched so
     # localStorage keys can be namespaced per build synchronously at load.
     bh = build_hash(dest)
-    with open(os.path.join(dest, "app", "build.js"), "w", encoding="utf-8") as f:
+    with open(os.path.join(inner, "app", "build.js"), "w", encoding="utf-8") as f:
         f.write("window.KVA_BUILD = %s;\n" % json.dumps(version))
         f.write("window.KVA_BUILD_HASH = %s;\n" % json.dumps(bh[:12]))
 

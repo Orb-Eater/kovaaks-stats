@@ -13,15 +13,18 @@ rem HTML with no dependencies, and a packaged installer would be a bigger,
 rem more opaque artefact than the thing it installs.
 rem ---------------------------------------------------------------------------
 
+call :log "install.bat launched"
+
 echo.
 echo   KovaaK's stats - setup
 echo   ============================================
 echo.
 
-if not exist "server.py" (
-  echo   [X] server.py is missing.
-  echo       Keep install.bat in the same folder as server.py and the app folder.
+if not exist "internal\server.py" (
+  echo   [X] internal\server.py is missing.
+  echo       Keep install.bat next to the internal folder it came with.
   echo.
+  call :log "internal\server.py missing - aborting"
   pause
   exit /b 1
 )
@@ -35,6 +38,7 @@ set "VERCHECK=import sys; sys.exit(0 if sys.version_info>=(3,7) else 1)"
 
 py -3 -c "%VERCHECK%" >nul 2>&1 && set "PY=py -3"
 if not defined PY python -c "%VERCHECK%" >nul 2>&1 && set "PY=python"
+if defined PY (call :log "python detect (py -3 / python): found") else (call :log "python detect (py -3 / python): not usable")
 
 if not defined PY (
   for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*" "%ProgramFiles%\Python3*" "%ProgramFiles(x86)%\Python3*" "C:\Python3*") do (
@@ -42,6 +46,7 @@ if not defined PY (
       "%%D\python.exe" -c "%VERCHECK%" >nul 2>&1 && set PY="%%D\python.exe"
     )
   )
+  if defined PY (call :log "python detect (directory scan): found") else (call :log "python detect (directory scan): nothing found")
 )
 
 if not defined PY (
@@ -53,6 +58,7 @@ if not defined PY (
     echo   Install it once from:  https://www.python.org/downloads/
     echo   On the first screen, tick "Add Python to PATH", then run this again.
     echo.
+    call :log "no usable python found, winget unavailable - aborting"
     pause
     exit /b 1
   )
@@ -62,12 +68,15 @@ if not defined PY (
     echo   No problem. Install it from https://www.python.org/downloads/
     echo   ^(tick "Add Python to PATH"^) and run this again.
     echo.
+    call :log "no usable python found, user declined winget install - aborting"
     pause
     exit /b 1
   )
   echo.
   echo   Installing Python. This can take a couple of minutes...
+  call :log "installing python via winget"
   winget install --id Python.Python.3.12 -e --source winget --accept-package-agreements --accept-source-agreements
+  call :log "winget install exit code %ERRORLEVEL%"
   echo.
   echo   Python installed. Close this window, open a NEW one, and run
   echo   install.bat again so Windows picks up the new PATH.
@@ -77,6 +86,7 @@ if not defined PY (
 )
 
 echo   [OK] Python found.
+call :log "using python: !PY!"
 
 rem --- 2. Shortcuts ----------------------------------------------------------
 rem Written via PowerShell + WScript.Shell, which is present on every Windows
@@ -121,7 +131,8 @@ echo   On first launch it will ask for your KovaaK's stats folder,
 echo   usually:
 echo     ...\steamapps\common\FPSAimTrainer\FPSAimTrainer\stats
 echo.
-echo   Nothing leaves your PC. No account, no uploads, no network calls.
+echo   Nothing leaves your PC beyond an optional check for app updates on
+echo   launch (no account, no uploads). Turn it off any time in config.json.
 echo.
 
 choice /c YN /n /m "   Start it now? [Y/N] "
@@ -132,3 +143,13 @@ start "" "%TARGET%"
 :done
 echo.
 endlocal
+exit /b 0
+
+:log
+rem Appends a timestamped line to internal\logs\install.log. Created here
+rem rather than relying on server.py to have made the folder first, since a
+rem broken setup run - by definition - never gets that far.
+set "LOGDIR=%~dp0internal\logs"
+if not exist "%LOGDIR%" mkdir "%LOGDIR%" >nul 2>&1
+>>"%LOGDIR%\install.log" echo %DATE% %TIME%  %~1
+exit /b 0

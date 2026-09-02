@@ -1,5 +1,7 @@
 KovaaK's stats app
 
+_(Leaving all the writing mistakes for now, enjoy broken english)_
+
 ## Written by the one and only Orb Eater.
 Yes, not AI. (Talking about this reqdme text not everything else) Every line of code and design is by Claude with my input. Read faq Line 54.
 

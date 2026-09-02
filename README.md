@@ -4,7 +4,7 @@ KovaaK's stats app
 Yes, not AI. (Talking about this reqdme text not everything else) Every line of code and design is by Claude with my input. Read faq Line 54.
 
 "why another KovaaK's app, we already have over 5 different ones ugh"
-This was not planned to be public, this was purely for personal use, but since people where interested in the metrics I shared over personal dm's, more than enough people wanted me to give them access. This is beta build, locally run, opens in web browser.
+This was not planned to be public, this was purely for personal use, but since people were interested in the metrics I shared over personal dm's, more than enough people wanted me to give them access. This is beta build, locally run, opens in web browser.
 Full application is in the works.
 
 **

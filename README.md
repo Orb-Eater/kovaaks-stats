@@ -10,7 +10,8 @@ Full application is in the works.
 **
 Early TL:DR
 Stat viewer with science based approach, running in your browser. Enjoy.**
-
+Go to releases to your right. Choose either beta or base build.
+Beta has new features, but could have some wonky visual bugs and or other bugs. Base has bugs too. 
 
 **Long text;**
 

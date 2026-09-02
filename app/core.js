@@ -37,7 +37,12 @@ const TUNING = {
   // "time in KovaaK's" and the active-play % describe something nobody did.
   // Sessions on the same day are still tied together - see dayIndex below.
   SESSION_GAP_MIN: 30,   // minutes of inactivity that starts a new session
-  WARMUP_DROP: 2,        // runs dropped at the start of each session
+  // Time-indexed, not run-indexed (V3.2 §1): a run-count cutoff means a
+  // session with 20s gaps stays contaminated while one with long gaps between
+  // runs clears it after two runs regardless of how little time actually
+  // passed. 120s is fitted to this corpus's minute-bucketed warm-up curve —
+  // recalibrate per install if the curve shape looks different.
+  WARMUP_SECONDS: 120,    // seconds since session start still counted as warm-up
   REFAM_GAP_DAYS: 14,    // returning to a scenario after this long...
   REFAM_DROP: 5,         // ...discards this many re-familiarisation runs
 
@@ -89,8 +94,9 @@ const TUNING = {
 
   // --- run resets --------------------------------------------------------
   // With "log every run" on, restarts land in the stats folder as real files.
-  // They are detected structurally (see run_timing in server.py), kept out of
-  // every statistic, and counted in the session panel.
+  // They are detected structurally (see run_timing in server.py) and kept out
+  // of every statistic. Not surfaced as a count anywhere in the UI — it was
+  // inconsistent about when it did and didn't show up, which read as broken.
   RESET_RATIO_ALERT: 5,     // restarts per completed run before it says something
   RESET_ALERT_MIN_RUNS: 3,  // ...but not until this many runs were actually finished
 
@@ -431,14 +437,19 @@ function requiredN(cv){
 // RNG is unbiased and averages out; these two are biased and do not, so they
 // get excluded rather than modelled. Runs are tagged once on load and filtered
 // at pool-build time so the toggles are instant.
+// Warm-up is measured against elapsed session time, not run count — see
+// WARMUP_SECONDS above. Session start is approximated as the first run's own
+// timestamp (itself an end-of-run time, same convention buildSessions uses),
+// so sessElapsedSec is a "how far into the session did this run land" clock
+// rather than a precise start-to-start measurement.
 // ---------------------------------------------------------------------------
 function annotateRuns(){
-  let prevT = null, pos = 0;
+  let prevT = null, sessionStart = null;
   RUNS.forEach(r => {
-    if(prevT === null || (r.date - prevT) > TUNING.SESSION_GAP_MIN*60000) pos = 0;
-    r.sessPos = pos++;
+    if(prevT === null || (r.date - prevT) > TUNING.SESSION_GAP_MIN*60000) sessionStart = r.date;
+    r.sessElapsedSec = (r.date - sessionStart) / 1000;
     prevT = r.date;
-    r.excl = (r.sessPos < TUNING.WARMUP_DROP) ? 'warmup' : null;
+    r.excl = (r.sessElapsedSec < TUNING.WARMUP_SECONDS) ? 'warmup' : null;
   });
   const byScen = {};
   RUNS.forEach(r => (byScen[r.scen] ||= []).push(r));
@@ -521,36 +532,6 @@ function fmtDur(sec){
 // are being thrown away until one starts well, which measures luck rather than
 // aim. Only fires once there are enough completed runs for the ratio to mean
 // anything - two resets on your first run is just finding your grip.
-// "Log every run" in KovaaK's is off by default, and while it is off a restart
-// never reaches the stats folder at all - so the restart counter would sit at a
-// permanent zero, which is a lie rather than a measurement. Detect the setting
-// from the data itself: a zero-length run that still scored can only exist if
-// the game wrote a file for an attempt that was abandoned.
-function logEveryRunOn(){
-  return RUNS.some(r => r.reset);
-}
-
-// Suggested once, dismissed forever. Nobody needs to be told twice.
-function logHintDismissed(){ return lsGet('kva_loghint') === '1'; }
-function dismissLogHint(){ lsSet('kva_loghint', '1'); }
-
-let logHintShown = false;
-function showLogEveryRunHint(){
-  if(logHintShown) return;
-  logHintShown = true;
-  const el = toast('loghint',
-    '<b>Want a restart counter?</b> Turn on <b>“Log every run”</b> in KovaaK\'s ' +
-    '(Settings &rsaquo; Game). Restarts are invisible to this app until you do — ' +
-    'the game only writes a file for runs you finish, so there is nothing to count.' +
-    '<span class="dim"> The trade-off: it writes a CSV for every restart too, which ' +
-    'clutters the stats folder and any other tool reading it. This app filters them ' +
-    'out of every statistic automatically.</span>' +
-    '<button type="button" id="logHintNo" class="minibtn" style="float:none;margin:8px 0 0">Don\'t show again</button>',
-    {kind:'info'});
-  const b = el && el.querySelector('#logHintNo');
-  if(b) b.addEventListener('click', () => { dismissLogHint(); dismissToast('loghint'); });
-}
-
 function resetDiagnosis(s){
   if(!s || !s.resets || s.completed < TUNING.RESET_ALERT_MIN_RUNS) return null;
   const byStreak = s.maxResetStreak > TUNING.RESET_RATIO_ALERT;
@@ -613,17 +594,17 @@ function runUsable(r){
 function warmupEffect(){
   const early = [], late = [];
   RUNS.forEach(r => {
-    if(r.sessPos == null) return;
-    (r.sessPos < 3 ? early : late).push(r.score);
+    if(r.sessElapsedSec == null) return;
+    (r.sessElapsedSec < TUNING.WARMUP_SECONDS ? early : late).push(r.score);
   });
   if(early.length < 30 || late.length < 30) return null;
   // Scores differ wildly between scenarios, so compare within scenario.
   const byScen = {};
-  RUNS.forEach(r => { if(r.sessPos != null) (byScen[r.scen] ||= []).push(r); });
+  RUNS.forEach(r => { if(r.sessElapsedSec != null) (byScen[r.scen] ||= []).push(r); });
   const ratios = [];
   Object.values(byScen).forEach(rs => {
-    const e = rs.filter(r => r.sessPos < 3).map(r => r.score);
-    const l = rs.filter(r => r.sessPos >= 3).map(r => r.score);
+    const e = rs.filter(r => r.sessElapsedSec < TUNING.WARMUP_SECONDS).map(r => r.score);
+    const l = rs.filter(r => r.sessElapsedSec >= TUNING.WARMUP_SECONDS).map(r => r.score);
     if(e.length < 3 || l.length < 10) return;
     const lm = mean(l);
     if(lm > 0) ratios.push((mean(e) - lm) / lm * 100);
@@ -1188,6 +1169,23 @@ function render(){
   renderCalendar(pool, displayPool, analysisClusters, effCmpMode);
   const runsInWindow = pool.filter(r => r.date >= windowStart && r.date <= windowEnd).length;
 
+  // Cell fragmentation readout — with 2,000+ scenarios and dozens of cm/360
+  // clusters, almost none of them individually clear the noise threshold.
+  // Telling the user why beats letting every number silently read "within noise".
+  {
+    const fragScenarios = new Set(pool.map(r => r.scen)).size;
+    if(fragScenarios > 1){
+      const clusterPart = hasCmData && analysisClusters.length > 1
+        ? ' across <b>' + analysisClusters.length.toLocaleString() + '</b> cm/360 clusters'
+        : '';
+      $('#fragNote').style.display = 'block';
+      $('#fragNote').innerHTML = 'Your data spans <b>' + fragScenarios.toLocaleString() + '</b> scenarios' + clusterPart +
+        ' — most individual combinations don’t have enough runs yet to clear the noise threshold, which is why many read as “within noise” below.';
+    } else {
+      $('#fragNote').style.display = 'none';
+    }
+  }
+
   const allCells = rows.reduce((a,r) => a.concat(r.cells), []);
   const overallPb  = overallOf(allCells.map(c=>c.ceiling));
   const overallAvg = overallOf(allCells.map(c=>c.typical));
@@ -1259,13 +1257,20 @@ function render(){
   const sideBadge = v => v===null ? '' : '<div class="vsub '+cls(v)+'">'+pctStr(v)+' avg</div>';
 
   // A result whose 95% interval straddles zero is not distinguishable from "no
-  // change", so it is shown in neutral grey rather than green/red. The interval
-  // itself is printed next to it — that one extra number is the whole
-  // difference between a finding and a coin flip.
+  // change" — see nsTag below for how that renders.
   const ciCrossesZero = e => !e || e.se == null || Math.abs(e.pct) <= TUNING.CI_Z * e.se;
   const estCls = e => (!e || e.pct == null) ? '' : (ciCrossesZero(e) ? 'ns' : (e.pct >= 0 ? 'up' : 'dn'));
   const estStr = e => (!e || e.pct == null) ? '—' : pctStr(e.pct);
   const ciStr  = e => (!e || e.se == null) ? '' : ' ± ' + (TUNING.CI_Z * e.se).toFixed(1) + '%';
+  // A result whose interval crosses zero never renders as a number, even a grey
+  // one — a colour-coded figure still reads as a measurement. It renders as the
+  // words "within noise", with the actual figure and interval moved behind the
+  // hover rather than sitting in the default view.
+  const nsTag = e => '<span class="nstag" title="' +
+    pctStr(e.pct) + (e.se != null
+      ? ', 95% CI ±' + (TUNING.CI_Z*e.se).toFixed(1) + '% — crosses zero, not distinguishable from no change.'
+      : ' — measured against an early baseline, not a confidence interval.') +
+    '">within noise</span>';
   // A % built from earlyBaseline() (Batch 8) gets a small marker rather than a
   // CI, because 2-5 samples can say roughly where you started but not how
   // precisely — showing an interval on that would overstate what it knows.
@@ -1273,8 +1278,9 @@ function render(){
     ' of this — there is no separate earlier period to compare against yet, so treat this as a rough starting point, not a measured change.">early</abbr>';
   const estSpan = e => (!e || e.pct == null)
     ? '<span style="color:var(--ink3)">—</span>'
-    : '<span class="'+estCls(e)+'">'+pctStr(e.pct)+'</span>' +
-      (e.early ? ' '+earlyTag(e.earlyN) : '<span class="ci">'+ciStr(e)+'</span>');
+    : ciCrossesZero(e)
+      ? nsTag(e) + (e.early ? ' '+earlyTag(e.earlyN) : '')
+      : '<span class="'+estCls(e)+'">'+pctStr(e.pct)+'</span><span class="ci">'+ciStr(e)+'</span>';
 
   // cm/360 breakdown (always computed from the full cm spectrum, ignoring the active Range/Specific filter,
   // so different cms can be compared side by side) + best/worst performing cm.
@@ -1322,7 +1328,7 @@ function render(){
   const TIPS = {
     'Runs in window': 'Total runs across all scenarios shown, inside the selected time window, cm/360 filter and outlier exclusion.',
     'Scenarios shown': 'Distinct scenarios with at least the minimum run count in this window.',
-    'Ceiling change': 'Your 90th-percentile score vs its baseline — what a good run looks like. Deliberately NOT your best run: a max grows with the number of runs you play, so it would show "improvement" from sample size alone. Inverse-variance weighted across every scenario × cm cell, shown with a 95% interval. Grey means the interval crosses zero, i.e. not distinguishable from no change.',
+    'Ceiling change': 'Your 90th-percentile score vs its baseline — what a good run looks like. Deliberately NOT your best run: a max grows with the number of runs you play, so it would show "improvement" from sample size alone. Inverse-variance weighted across every scenario × cm cell, shown with a 95% interval. "Within noise" means the interval crosses zero, i.e. not distinguishable from no change — hover it for the actual figure.',
     'Typical change': 'Your 10%-trimmed mean vs its baseline — the middle of your distribution, with the best and worst tails removed so one fluke run cannot move it. Weighted by precision across all scenario × cm cells, with a 95% interval.',
     'Floor change': 'Your 10th-percentile score vs its baseline — how bad your bad runs are. Needs 20+ runs on each side, otherwise the "bottom 10%" is one or two runs and is meaningless.',
     'Typical vs Ceiling': 'Typical change minus Ceiling change. Positive means your floor is catching up to your peak (consolidation). Negative means your peak is running ahead of your typical result.',
@@ -1337,9 +1343,14 @@ function render(){
   };
 
   const cardHtml = ([k,v,c,side,big]) => '<div class="card'+(big?' big':'')+'" title="'+(TIPS[k]||'')+'"><div class="k">'+k+'</div><div class="v'+(c?' '+c:'')+'">'+v+'</div>'+(side||'')+'</div>';
-  // Big cards carry the estimate plus its interval underneath.
-  const estCard = (k, e, avail) => [k, avail ? estStr(e) : '—', avail ? estCls(e) : '',
-    (avail && e && e.se != null) ? '<div class="vsub ci">'+ciStr(e).replace(/^ /,'')+'</div>' : '', true];
+  // Big cards carry the estimate plus its interval underneath — unless the
+  // interval crosses zero, in which case both the number and its interval move
+  // behind the "within noise" hover instead of sitting in the default view.
+  const estCard = (k, e, avail) => {
+    const ns = avail && e && e.pct != null && ciCrossesZero(e);
+    return [k, avail ? (ns ? nsTag(e) : estStr(e)) : '—', avail ? estCls(e) : '',
+      (avail && e && e.se != null && !ns) ? '<div class="vsub ci">'+ciStr(e).replace(/^ /,'')+'</div>' : '', true];
+  };
 
   const cards = [
     estCard('Ceiling change', overallPb, true),
@@ -1384,8 +1395,8 @@ function render(){
   }
   if(shownWithCI >= 20) caveats.push('With ' + shownWithCI + ' scenarios on screen, expect ~' +
     Math.max(1, Math.round(shownWithCI*0.05)) + ' to look significant by chance alone. Treat any single standout sceptically.');
-  if(wEff != null && Math.abs(wEff) >= 1) caveats.push('Your first 3 runs of a session average ' +
-    (wEff>=0?'+':'') + wEff.toFixed(1) + '% vs later runs' +
+  if(wEff != null && Math.abs(wEff) >= 1) caveats.push('Your first ~' + Math.round(TUNING.WARMUP_SECONDS/60) +
+    ' minutes of a session average ' + (wEff>=0?'+':'') + wEff.toFixed(1) + '% vs later runs' +
     (excludeWarmup ? ' — those runs are being excluded.' : ' — consider enabling "Skip warmup".'));
   if(sortBy === 'data') caveats.push('Sorted by how precisely each scenario can measure a change (the width of its 95% interval), not by how good you are at it or how much you played it. Scenarios at the bottom are not worse \u2014 they are thinner, or their runs are split across more sensitivities.');
   if(sortBy === 'needplay') caveats.push('Recommended-to-play partly selects scenarios that currently look bad, so they will tend to look better next time regardless of what you do (regression to the mean). Do not read that rebound as proof the recommender worked.');
@@ -2363,12 +2374,15 @@ function cmPanelHtml(scen, key, runs){
       a.regular.cm + 'cm</b>, ' + a.regular.n + ' runs). Nothing to explain.</p>';
   } else {
     const d = a.diff;
-    head = '<p class="cmread">You average <b class="' + (d.ns ? 'ns' : (d.pct>=0?'up':'dn')) + '">' +
-      (d.pct>=0?'+':'') + d.pct.toFixed(1) + '%</b> at <b>' + a.best.cm + 'cm</b> (' + a.best.n +
+    head = '<p class="cmread">You average ' +
+      (d.ns
+        ? '<span class="nstag" title="' + (d.pct>=0?'+':'') + d.pct.toFixed(1) + '%, 95% CI \u00b1' +
+          (TUNING.CI_Z*d.se).toFixed(1) + '% \u2014 crosses zero.">within noise</span>'
+        : '<b class="' + (d.pct>=0?'up':'dn') + '">' + (d.pct>=0?'+':'') + d.pct.toFixed(1) + '%</b>') +
+      ' at <b>' + a.best.cm + 'cm</b> (' + a.best.n +
       ' runs) versus <b>' + a.regular.cm + 'cm</b>, the one you play most (' + a.regular.n + ' runs). ' +
       (d.ns
-        ? '<b>That interval spans zero</b> \u2014 \u00b1' + (TUNING.CI_Z*d.se).toFixed(1) +
-          '%. Your data cannot tell this apart from noise, so read anything below as a hypothesis, not a finding.'
+        ? '<b>That interval spans zero.</b> Your data cannot tell this apart from noise, so read anything below as a hypothesis, not a finding.'
         : '\u00b1' + (TUNING.CI_Z*d.se).toFixed(1) + '%, which does not span zero.') + '</p>';
   }
 
@@ -2453,8 +2467,8 @@ function cmWipNote(){
 //
 // Each month is measured against the month before it, through exactly the same
 // machinery the rest of the page uses: per scenario, per sensitivity, combined
-// by how precise each comparison is. A month whose interval spans zero is drawn
-// grey, same as everywhere else.
+// by how precise each comparison is. A month whose interval spans zero reads
+// "within noise" rather than a number, same as everywhere else.
 // ---------------------------------------------------------------------------
 const CAL_MONTHS = 5;
 // The date pickers already own a short MONTH_NAMES; the calendar wants them
@@ -2530,10 +2544,14 @@ function renderCalendar(pool, displayPool, clusters, cmpMode){
     const pctCls = !typical || typical.pct == null ? '' : (ns ? 'ns' : (typical.pct >= 0 ? 'up' : 'dn'));
     const pctTxt = !typical || typical.pct == null
       ? '<span class="calnone" title="Not enough comparable runs in this month to measure a change against the month before">—</span>'
-      : '<span class="' + pctCls + '" title="Typical (trimmed mean) change against ' +
-        MONTH_LONG[(a.getMonth()+11)%12] + (typical.se != null
-          ? ', 95% CI ±' + (TUNING.CI_Z*typical.se).toFixed(1) + '%' + (ns ? ' — spans zero, so this is within noise' : '')
-          : '') + '">' + (typical.pct>=0?'+':'') + typical.pct.toFixed(1) + '%</span>';
+      : ns
+        ? '<span class="ns" title="Typical (trimmed mean) change against ' + MONTH_LONG[(a.getMonth()+11)%12] +
+          ': ' + (typical.pct>=0?'+':'') + typical.pct.toFixed(1) + '%, 95% CI ±' + (TUNING.CI_Z*typical.se).toFixed(1) +
+          '% — spans zero, so this is within noise">within noise</span>'
+        : '<span class="' + pctCls + '" title="Typical (trimmed mean) change against ' +
+          MONTH_LONG[(a.getMonth()+11)%12] + (typical.se != null
+            ? ', 95% CI ±' + (TUNING.CI_Z*typical.se).toFixed(1) + '%'
+            : '') + '">' + (typical.pct>=0?'+':'') + typical.pct.toFixed(1) + '%</span>';
 
     // Day strip, Monday-first. A month you barely touched should look like one.
     const days = new Date(b.getTime()-1).getDate();
@@ -2572,8 +2590,8 @@ function renderCalendar(pool, displayPool, clusters, cmpMode){
   calCache.key = key;
   calCache.html = '<div class="scen calwrap"><h3>Months' +
     '<button type="button" class="minibtn" id="calExplain">What is this?</button></h3>' +
-    '<p class="calnote">Typical (trimmed mean) change against the month before. Grey means the ' +
-    'interval spans zero — within noise.</p>' +
+    '<p class="calnote">Typical (trimmed mean) change against the month before. "Within noise" ' +
+    'means the interval spans zero — hover it for the actual figure.</p>' +
     cards.join('') + '</div>';
   $('#calendarWrap').innerHTML = calCache.html;
 }
@@ -2625,8 +2643,9 @@ const SIDETAB_DOCS = {
         'separate earlier period. A rough starting point, not a measured change, so it is given no ' +
         'confidence interval.</span></div>' +
       '<div class="keyrow"><span class="keysym">±</span><span><b>± a number</b> — the 95% confidence ' +
-        'interval. If it spans zero, the change is drawn grey: the data cannot tell that apart from ' +
-        'noise, whatever the headline number says.</span></div>' +
+        'interval. If it spans zero, the change renders as <b>within noise</b> instead of a number: the ' +
+        'data cannot tell it apart from noise, whatever the underlying figure says. Hover the words for ' +
+        'the actual figure and interval.</span></div>' +
       '<div class="keyrow"><span class="keysym">n&lt;</span><span><b>n&lt;10</b> and friends — withheld, not zero. ' +
         'Each metric has its own minimum sample size and shows nothing below it rather than a number ' +
         'it has not earned.</span></div>' +
@@ -2656,8 +2675,8 @@ const SIDETAB_DOCS = {
       '<h3>What it is measured against</h3>' +
       '<p>The month before it, through the same machinery as the rest of the page: compared within ' +
       'each scenario and each sensitivity, then combined weighted by how precise each comparison ' +
-      'is. A month drawn <b>grey</b> has a confidence interval that spans zero — whatever the ' +
-      'number says, that month is within noise. A dash means there were not enough comparable runs ' +
+      'is. A month reading <b>within noise</b> has a confidence interval that spans zero — hover it ' +
+      'for the actual figure. A dash means there were not enough comparable runs ' +
       'to say anything at all.</p>' +
       '<h3>The squares</h3>' +
       '<p>One per day, Monday first, shaded by how many runs you finished. A month you barely ' +
@@ -2722,7 +2741,8 @@ const SIDETAB_DOCS = {
       'the one that matters most: a rising floor is skill you own, a rising ceiling can be luck.</p>' +
       '<h3>Why a change can be "not significant"</h3>' +
       '<p>Every percentage carries a 95% confidence interval. When that interval spans zero, the ' +
-      'number is drawn grey — your data genuinely cannot distinguish it from noise. Being told ' +
+      'app does not print the number at all — it prints <b>within noise</b>, with the actual figure ' +
+      'available on hover. Your data genuinely cannot distinguish it from noise, and being told ' +
       '"that is noise" is the point of this app.</p>' +
       '<h3>How many runs it takes</h3>' +
       '<p>Runs needed scales with the <i>square</i> of how noisy that scenario is for you: ' +
@@ -2730,7 +2750,8 @@ const SIDETAB_DOCS = {
       'to see a 5% change; one with 12% spread needs about 90. That is why one global "minimum runs" ' +
       'cannot be right, and why the warning symbol quotes a number per scenario.</p>' +
       '<h3>What is excluded</h3>' +
-      '<p><b>Warm-up runs</b> are measurably lower (about 8% here) and are dropped by default — if ' +
+      '<p><b>Warm-up runs</b> — the first ~2 minutes of a session — are measurably lower (about 8% here) ' +
+      'and are dropped by default — if ' +
       'your session lengths change between the two periods, that bias alone shows up as a fake skill ' +
       'change. <b>Re-familiarisation runs</b> after a long break are dropped for the same reason. ' +
       '<b>Restarts</b> never count: an abandoned attempt is not a run you played. <b>Zero-score runs</b> ' +
@@ -3064,7 +3085,6 @@ function renderSessionPanel(){
     resetWarnShownFor = s.start.getTime();
     toast('resetspam', esc(resetWarn), {kind:'warn'});
   }
-  if(!logEveryRunOn() && !logHintDismissed()) showLogEveryRunHint();
 
   // What the watcher last saw land. Treated as "now playing" while it is recent;
   // after that it is just the last thing you played, and says so.
@@ -3089,8 +3109,7 @@ function renderSessionPanel(){
     (sessionCollapsed ? '' :
       nowPlaying +
       '<div class="cards" style="margin-bottom:0">' +
-        card('Latest session', s.completed + ' runs' +
-          (s.resets ? ' <span class="ci">+' + s.resets + ' restarts</span>' : '')) +
+        card('Latest session', s.completed + ' runs') +
         card('Time in KovaaK\'s', fmtDur(spanNow), ' data-live="span"') +
         card('Actually playing', fmtDur(s.playSec) +
           (activeNow != null ? ' <span class="ci">(' + activeNow.toFixed(0) + '%)</span>' : ''),
@@ -3101,8 +3120,6 @@ function renderSessionPanel(){
           : '') +
         card('Median gap', s.medGap != null ? s.medGap.toFixed(1) + 's' : '—') +
         card('Scenarios', s.scens) +
-        (logEveryRunOn() ? card('Restarts', s.resets +
-          (s.maxResetStreak > 1 ? ' <span class="ci">(' + s.maxResetStreak + ' in a row)</span>' : '')) : '') +
         card('Today', tRuns + ' runs · ' + fmtDur(tPlay) + ' played' +
           (today.length > 1
             ? ' <span class="ci">(' + today.length + ' sittings, ' + fmtDur(todayBreak) + ' between)</span>'

@@ -70,7 +70,7 @@
     </span>
     <span><label for="minruns">Min runs</label>
     <input type="number" id="minruns" value="10" min="1" max="500" style="width:74px"></span>
-    <label class="chk" title="Drop the first runs of each play session. They are systematically lower than the rest, and if session lengths differ between the two periods that bias shows up as a fake skill change.">
+    <label class="chk" title="Drop the first ~2 minutes of each play session. They are systematically lower than the rest, and if session lengths differ between the two periods that bias shows up as a fake skill change.">
       <input type="checkbox" id="exWarmup" checked> Skip warmup
     </label>
     <label class="chk" title="Drop the first runs after returning to a scenario following a long break. Those runs measure unfamiliarity, not skill.">
@@ -83,6 +83,7 @@
     </select></span>
   </div>
   <p class="note" id="allnote" style="display:none">"All" uses first half vs second half of your history for comparisons — there's no earlier baseline for all-time.</p>
+  <p class="note" id="fragNote" style="display:none"></p>
 
   <div id="cmwrap" style="display:none">
     <div class="cmbar">

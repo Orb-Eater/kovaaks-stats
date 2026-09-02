@@ -146,6 +146,9 @@ tr:last-child td{border-bottom:none}
 /* A result whose 95% interval crosses zero is not distinguishable from no
    change, so it gets no colour at all. */
 .ns{color:var(--ink2)}
+/* The words "within noise" standing in for a number — the actual figure and
+   interval live in the hover, same idiom as .nodata/.nocmp below. */
+.nstag{color:var(--ink3);border-bottom:1px dotted rgba(255,255,255,.22);cursor:help}
 .ci{color:var(--ink3);font-size:.85em;white-space:nowrap}
 /* nowrap keeps a CI like "+2.1 ± 0.8%" from breaking across lines, but a long
    parenthetical in a narrow card then pushes the whole grid wider than the

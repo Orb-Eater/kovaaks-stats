@@ -1,21 +1,215 @@
-MIT License
+PERSONAL USE AND NO-REDISTRIBUTION LICENSE
+Version 1.0
 
-Copyright (c) 2026 Orb Eater
+Copyright © [2026] [Orb Eater / Thomas Gaasø]
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+All rights reserved except for the permissions expressly granted below.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. DEFINITIONS
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+For purposes of this License:
+
+“Licensor” means the copyright holder or other person or entity authorized to grant these rights.
+
+“Software” means this software project, including its source code, object code, documentation, assets, files, scripts, configuration, examples, and other materials distributed with or as part of the project.
+
+“You” means the individual or legal entity exercising rights under this License.
+
+“Private Use” means use of the Software solely by you, on systems or storage under your control, for personal, private, noncommercial purposes, including personal learning, evaluation, experimentation, testing, hobby use, and personal projects.
+
+“Distribution” means providing, publishing, transmitting, selling, licensing, sublicensing, lending, renting, hosting, posting, uploading, mirroring, sharing, or otherwise making the Software or any portion of it available to another person or entity, whether publicly or privately, whether for compensation or without compensation.
+
+A “Modified Version” means the Software or any portion of it that has been changed, adapted, translated, extended, combined, or otherwise altered.
+
+A “Fork” means a repository or other copy of the Software that is maintained as a separate development repository, including a GitHub fork or equivalent functionality on another hosting platform.
+
+2. LIMITED LICENSE
+
+Subject to the terms of this License, the Licensor grants You a limited, non-exclusive, non-transferable, revocable copyright license to:
+
+(a) download and possess copies of the Software;
+
+(b) copy the complete Software repository for Your own Private Use, including making reasonable private backups;
+
+(c) execute and use the Software for Private Use; and
+
+(d) modify the Software for Your own Private Use.
+
+No rights are granted except those expressly stated in this License.
+
+3. PRIVATE MODIFICATION
+
+You may inspect, modify, adapt, configure, or otherwise change the Software for Your own Private Use.
+
+You may create and maintain Modified Versions for Your own Private Use.
+
+However, neither the original Software nor any Modified Version may be Distributed to, published for, provided to, or otherwise made available to any other person or entity without the Licensor's prior written permission.
+
+Private modifications do not become authorized for Distribution merely because they are substantially different from the original Software.
+
+4. NO REDISTRIBUTION
+
+Except where the Licensor has given prior written permission, You may not:
+
+(a) distribute the Software or any portion of it to another person or entity;
+
+(b) distribute, publish, upload, transmit, or otherwise make available any Modified Version;
+
+(c) publish the Software or any Modified Version on another website, repository, package registry, file-sharing service, application store, forum, social media platform, or similar service;
+
+(d) place the Software or any Modified Version into a publicly or privately accessible repository for the purpose of providing it to others;
+
+(e) provide the Software or any Modified Version to another person or entity by sale, gift, transfer, email, file sharing, download link, physical media, network transfer, or any other means; or
+
+(f) sublicense, lease, rent, loan, or otherwise transfer any rights granted by this License.
+
+5. FORKS AND MIRRORS
+
+Creating, maintaining, or publishing a Fork, mirror, derivative repository, or equivalent repository containing the Software or any Modified Version requires the Licensor's prior written permission, except where such repository access is expressly authorized by the Licensor.
+
+A Fork or repository copy is not considered Private Use merely because the repository is configured as private.
+
+Permission to create or access a Fork does not, by itself, grant permission to publish, distribute, commercially exploit, or otherwise make the Software or a Modified Version available to others.
+
+Where a hosting platform permits or requires a Fork through its own service functionality, this License does not grant any additional copyright permissions beyond those expressly stated in this License.
+
+6. NO COMMERCIAL USE
+
+The Software may not be used for Commercial Use without the Licensor's prior written permission.
+
+“Commercial Use” means any use intended primarily for financial gain, monetary compensation, revenue generation, paid services, sale of goods or services, advertising revenue, subscription revenue, licensing revenue, or other commercial advantage.
+
+Without limiting the foregoing, You may not:
+
+(a) sell the Software or any portion of it;
+
+(b) sell or license a Modified Version;
+
+(c) include the Software or a Modified Version in a product or service that You sell, license, rent, or otherwise monetize;
+
+(d) use the Software to provide a paid service to another person or entity;
+
+(e) monetize access to the Software or a Modified Version; or
+
+(f) otherwise profit directly or indirectly from the Software or a Modified Version.
+
+7. ATTRIBUTION AND INTEGRITY OF THE ORIGINAL WORK
+
+You must not remove, conceal, alter, or falsify copyright notices, authorship notices, license notices, or other attribution information included with the Software.
+
+You must not represent a Modified Version as the original, unmodified work of the Licensor.
+
+If the Software is ever Distributed with the Licensor's written permission, the original copyright and license notices must be retained, and the Distributed Modified Version must be clearly identified as modified.
+
+8. NO SUBLICENSING
+
+This License does not grant You the right to sublicense the Software or grant rights in the Software to another person or entity.
+
+Any permission granted by the Licensor to a third party must come directly from the Licensor or under a separate written agreement.
+
+9. THIRD-PARTY MATERIALS
+
+The Software may contain or depend upon material owned by third parties and subject to separate licenses.
+
+Those third-party materials remain governed by their respective licenses. Nothing in this License grants rights to third-party material that the Licensor does not have the authority to grant.
+
+10. INTELLECTUAL PROPERTY
+
+Except for the limited rights expressly granted by this License, the Licensor retains all right, title, and interest in and to the Software and all associated intellectual property rights.
+
+No ownership interest is transferred to You by this License.
+
+No patent license is granted by this License, whether expressly, by implication, estoppel, or otherwise, except to the minimum extent that such a license cannot legally be excluded.
+
+11. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED “AS IS” AND “AS AVAILABLE,” WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR DISCLAIMS ALL WARRANTIES AND CONDITIONS, INCLUDING, WITHOUT LIMITATION, WARRANTIES OR CONDITIONS OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, RELIABILITY, SECURITY, AVAILABILITY, QUALITY, AND FREEDOM FROM DEFECTS.
+
+THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL OPERATE WITHOUT INTERRUPTION, BE ERROR-FREE, SECURE, SAFE, COMPATIBLE WITH YOUR SYSTEM, OR SUITABLE FOR ANY PARTICULAR PURPOSE.
+
+YOU ACCEPT ALL RISK ARISING FROM YOUR ACCESS TO, POSSESSION OF, MODIFICATION OF, OR USE OF THE SOFTWARE.
+
+12. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT BE LIABLE FOR ANY LOSS, DAMAGE, COST, EXPENSE, CLAIM, OR LIABILITY ARISING OUT OF OR RELATING TO THE SOFTWARE OR THIS LICENSE, INCLUDING ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, PUNITIVE, OR OTHER DAMAGES.
+
+THIS INCLUDES, WITHOUT LIMITATION, LOSS OF DATA, LOSS OF PROFITS, LOSS OF REVENUE, LOSS OF BUSINESS, LOSS OF OPPORTUNITY, LOSS OF GOODWILL, BUSINESS INTERRUPTION, SYSTEM FAILURE, SECURITY INCIDENTS, DEVICE DAMAGE, SOFTWARE DAMAGE, PERSONAL OR PROPERTY DAMAGE, THIRD-PARTY CLAIMS, OR ANY OTHER LOSS OR DAMAGE ARISING FROM THE USE OF, INABILITY TO USE, MODIFICATION OF, OR RELIANCE UPON THE SOFTWARE.
+
+THIS LIMITATION APPLIES REGARDLESS OF THE LEGAL THEORY ASSERTED, INCLUDING CONTRACT, WARRANTY, TORT, NEGLIGENCE, STRICT LIABILITY, STATUTE, OR ANY OTHER THEORY, AND EVEN IF THE LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+NOTHING IN THIS LICENSE EXCLUDES OR LIMITS LIABILITY TO THE EXTENT THAT SUCH LIABILITY CANNOT LAWFULLY BE EXCLUDED OR LIMITED UNDER APPLICABLE LAW.
+
+13. INDEMNITY
+
+To the maximum extent permitted by applicable law, You are solely responsible for Your use and modification of the Software and for any consequences resulting from Your use or modification of the Software.
+
+To the extent permitted by applicable law, You agree to indemnify and hold harmless the Licensor from claims, losses, damages, liabilities, costs, and expenses arising from Your unauthorized Distribution, Commercial Use, or other breach of this License.
+
+14. TERMINATION
+
+This License automatically terminates if You violate any of its terms.
+
+Upon termination, You must immediately cease exercising all rights granted by this License and, to the extent legally and technically practicable, delete copies of the Software and Modified Versions in Your possession or control, except for copies that You are legally required to retain.
+
+Termination does not prevent the Licensor from pursuing any other rights or remedies available under applicable law.
+
+15. PERMISSION BY THE LICENSOR
+
+The Licensor may grant written permission for acts otherwise prohibited by this License.
+
+Such permission may be granted on a case-by-case basis and may contain additional conditions, including attribution requirements, commercial licensing fees, or other terms.
+
+Unless expressly stated otherwise in writing, permission to perform one otherwise prohibited act does not constitute permission to perform any other prohibited act.
+
+16. NO IMPLIED RIGHTS
+
+Any right not expressly granted by this License is reserved by the Licensor.
+
+Silence, failure to enforce, delayed enforcement, or knowledge of an unauthorized use does not constitute permission, waiver, or grant of additional rights.
+
+17. SEVERABILITY
+
+If any provision of this License is determined to be invalid, illegal, or unenforceable, that provision shall be enforced to the maximum extent permitted by law and the remaining provisions shall remain in full force and effect.
+
+18. GOVERNING LAW
+
+This License shall be governed by and interpreted in accordance with the laws of:
+
+[Norway]
+
+without regard to its conflict-of-laws principles, except to the extent that mandatory applicable law provides otherwise.
+
+19. COMPLETE LICENSE
+
+This License constitutes the entire license governing the rights granted by the Licensor with respect to the Software, except for separate written agreements expressly entered into by the Licensor.
+
+---
+
+SUMMARY OF PERMITTED USE
+
+You may:
+
+• download the complete repository;
+• keep a private copy;
+• make private backups;
+• run and use the Software personally;
+• study and inspect the Software;
+• modify the Software privately for personal, noncommercial use.
+
+You may not, without the Licensor's prior written permission:
+
+• redistribute or share the Software;
+• distribute or share Modified Versions;
+• publish the Software or Modified Versions;
+• create or publish a Fork or mirror;
+• sell the Software or Modified Versions;
+• commercially exploit the Software;
+• sublicense or transfer rights;
+• provide the Software to another person or entity;
+• represent Modified Versions as the original work.
+
+For permission requests, contact:
+
+[Thomas Gaasø / Orb Eater / Discord: ]

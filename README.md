@@ -1,3 +1,7 @@
+BUG NOT SHOWING ANY STATS
+Fix in que, added older v0.7.2 release for download.
+
+
 KovaaK's stats app
 
 _(Leaving all the writing mistakes for now, enjoy broken english)_

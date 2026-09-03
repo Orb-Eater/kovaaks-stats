@@ -1,5 +1,5 @@
 BUG NOT SHOWING ANY STATS
-Fix in que, added older v0.7.2 release for download.
+Fix in que sorri
 
 
 KovaaK's stats app

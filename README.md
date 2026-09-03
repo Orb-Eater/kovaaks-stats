@@ -1,8 +1,8 @@
-BUG NOT SHOWING ANY STATS
-Fix in que sorri
+### BUG NOT SHOWING ANY STATS
+**Fix in que sorri**
 
-
-KovaaK's stats app
+# SVC
+#### **Stats With Consistency**
 
 _(Leaving all the writing mistakes for now, enjoy broken english)_
 

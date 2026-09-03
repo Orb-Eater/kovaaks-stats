@@ -115,7 +115,11 @@ far more stable at varying *n*.
 **What this app already does:** the headline metrics were reworked in v0.0.4 to
 Ceiling (p90) / Typical (trimmed mean) / Floor (p10), and raw PB is explicitly
 labelled *"not a measurement"*. p90 instead of max is the "acceptable simpler
-alternative" above. `pb_surprise` itself is not computed yet — see §10.
+alternative" above. `pb_surprise` shipped in v0.9.0, gated below n = 10 same as
+CV — but using an *exact* expected-max table (numerical integration, 300
+values) rather than Blom's approximation above, which this build's own testing
+confirms is unreliable at the session-sized `n` (15-40 runs) this app actually
+sees; Blom is only trustworthy around n > 100.
 
 ### 4.2 Regression to the mean
 
@@ -321,7 +325,7 @@ Ordered by how much the gap distorts what the user is told.
 | 7 | Windows not labelled Form / Trend / Change vs baseline | §7 | S | ⬜ backlog |
 | 8 | `schedule_index` not computed | §5 | S | ⬜ backlog |
 | 9 | No multiple-comparison correction on "Biggest gain" | §8 | S | ⬜ backlog |
-| 10 | `pb_surprise` not computed | §4.1 | S | ⬜ backlog |
+| 10 | `pb_surprise` not computed | §4.1 | S | ✅ **fixed v0.9.0** (exact table, not Blom) |
 | 11 | Probability of superiority not offered | §7 | S | ⬜ backlog |
 | 12 | Single-session commentary audit vs regression to the mean | §4.2 | S | ⬜ backlog |
 | 13 | Per-scenario cm/360 filter (currently global only) | §3 | M | ⬜ backlog |

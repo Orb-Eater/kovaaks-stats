@@ -124,6 +124,8 @@ echo.
 echo   ============================================
 echo   Setup complete.
 echo.
+echo   Success! Now open start.bat file
+echo.
 echo   Start the app from the Desktop shortcut, the Start Menu,
 echo   or by running start.bat in this folder.
 echo.

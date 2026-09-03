@@ -55,7 +55,13 @@ period is built.
 its expected value rises with the number of runs even when nothing about your
 skill changed. 40 runs this window against 15 last window produces a positive
 "PB increase" from sample size alone. It's shown because people want to see
-their record, and never converted to a percentage.
+their record, and never converted to a percentage. Instead, from n ≥ 10 runs
+its row carries `pb_surprise`: how many standard deviations the record sits
+from the maximum an unchanging player would be expected to reach from that
+many runs alone, `(record - mean)/sd - expected_max_std(n)`, where
+`expected_max_std` is an exact table (Simpson's-rule numerical integration),
+not Blom's approximation, which is documented as unreliable at session-sized
+`n`.
 
 **Floor needs n ≥ 20.** At n = 5, "bottom 10%" is literally the single worst
 run — the same one-observation sensitivity as `max`, mirrored.

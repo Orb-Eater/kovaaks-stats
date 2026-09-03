@@ -170,6 +170,7 @@ def main():
             return 0
 
         print("+ Updated to v%s." % remote_version)
+        print("Update success")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

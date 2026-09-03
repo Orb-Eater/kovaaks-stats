@@ -2,6 +2,7 @@
   --bg:#12130f; --surface:#1b1d17; --surface2:#232620; --line:#33362d;
   --ink:#eceade; --ink2:#a2a596; --ink3:#6f7266;
   --med:#4a9ee0; --low:#e08a3c; --best:#5fb98a;
+  --tophi:#d4b83c; --lowlo:#c46bd4; --raw:#8f97f2;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
@@ -160,8 +161,16 @@ tr:last-child td{border-bottom:none}
 .cards.hero .card.big .vsub.ci{font-size:17px}
 .recordtag{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);border:1px solid var(--line);border-radius:4px;padding:1px 4px;margin-left:5px;vertical-align:middle}
 .note{font-size:13px;color:var(--ink3);margin-top:8px}
+/* CALCULATIONS-V4 §10.3 attribution candidates — plain rows, not cards: this
+   is a ranked hypothesis list, not a headline figure worth a card's weight. */
+.attribrow{padding:8px 0;border-top:1px solid var(--line)}
+.attribrow:first-child{border-top:none}
+.attribhead{font-size:13px}
+.attribhead b{font-weight:600}
+.attribsub{font-size:11.5px;color:var(--ink3);margin-top:2px}
+.attribempty{font-size:13px;color:var(--ink3)}
 @media(prefers-color-scheme:light){
-  :root{--bg:#faf9f5;--surface:#fff;--surface2:#f2f1eb;--line:#dedcd2;--ink:#16170f;--ink2:#5f6156;--ink3:#8d8f83;--med:#2a78d6;--low:#c2661f;--best:#1b8f62}
+  :root{--bg:#faf9f5;--surface:#fff;--surface2:#f2f1eb;--line:#dedcd2;--ink:#16170f;--ink2:#5f6156;--ink3:#8d8f83;--med:#2a78d6;--low:#c2661f;--best:#1b8f62;--tophi:#a3891f;--lowlo:#a13fb8;--raw:#4c56c9}
   .err{background:#fdf0e6;border-color:#e8c4a0;color:#8a4b1c}
   .tabbtn.active{color:#fff}
 }

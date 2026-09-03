@@ -95,6 +95,9 @@
     <label class="chk" title="Drop the first runs after returning to a scenario following a long break. Those runs measure unfamiliarity, not skill.">
       <input type="checkbox" id="exRefam" checked> Skip re-familiarisation
     </label>
+    <label class="chk" title="Adds 3 overlays to every scenario chart: a trendline from your first run to your all-time best (and one to your all-time worst), each projected clear across the chart with its angle labelled, plus a raw line connecting every run in order.">
+      <input type="checkbox" id="tradingLines"> Trading lines
+    </label>
     <span><label for="cmp">Compare vs</label>
     <select id="cmp" title="How the baseline for PB/Avg/Low avg % changes is chosen. Hover the options for details.">
       <option value="prev" selected title="Compares this window to an equal-length period immediately before it (e.g. last 30 days vs the 30 days before that). Uses a genuinely separate, non-overlapping baseline — the most reliable read on real progress.">Previous window (recommended)</option>
@@ -107,6 +110,23 @@
   <p class="note" id="winExplain" style="display:none"><b>Window</b> — day-to-day scores are noisy (fatigue, warm-up, motivation); motor-learning research judges real skill consolidation over multi-week trends, not single sessions. 30 days (recommended) balances smoothing that noise against staying relevant to your current training. <b>Compare vs</b> — <b>Previous window</b>: this period vs an equal-length period right before it (most accurate, default). <b>First half of window</b>: the second half of this period vs its first half (reacts faster, noisier).</p>
   <p class="note" id="allnote" style="display:none">"All" uses first half vs second half of your history for comparisons — there's no earlier baseline for all-time.</p>
   <p class="note" id="fragNote" style="display:none"></p>
+
+  <div id="benchHeadlineWrap" style="display:none">
+    <div class="sectionbar" style="margin-bottom:8px;align-items:center">
+      <span style="font-size:13px;color:var(--ink2)"><b>Benchmark progress</b></span>
+      <select id="benchHeadlinePick" title="CALCULATIONS-V4 §10.1: the benchmark aggregate is the app's primary metric — a fixed scenario basket scored on the suite's own rank scale, which anchors effect size to an external, non-gameable reference instead of your own variance. Pick which benchmark suite to headline here."></select>
+      <span class="note" id="benchHeadlineNote" style="margin:0"></span>
+    </div>
+    <div class="cards" id="benchHeadlineCards" style="margin-bottom:16px"></div>
+  </div>
+
+  <div id="attribWrap" style="display:none">
+    <div class="sectionbar" style="margin-bottom:8px;align-items:center">
+      <span style="font-size:13px;color:var(--ink2)" title="CALCULATIONS-V4 §10.3: hypothesis generation, not causal proof. Sessions with more of a given scenario are also sessions where you had time, were rested and played five other things — this can't tell that apart from a real effect. It's lagged (this week's volume vs next week's change), scored the same way against scenarios picked without regard to plausibility, and only lists a scenario if its effect clears the smallest worthwhile change. Treat a high percentile as a lead worth testing, not an answer."><b>What's moving it? (hypothesis, not proof)</b></span>
+      <span class="note" id="attribNote" style="margin:0"></span>
+    </div>
+    <div id="attribList" style="margin-bottom:16px"></div>
+  </div>
 
   <div class="sectionbar" style="margin-bottom:8px">
     <label class="chk" title="Reminders to step away. Run-based and time-based fire independently."><input type="checkbox" id="brkEnable"> Break reminders</label>
@@ -131,6 +151,20 @@
        inline, so nothing becomes unreachable on a 1200px screen. -->
   <div class="applayout">
   <div class="maincol">
+  <div id="matchedHeadlineWrap">
+    <div class="sectionbar" style="margin-bottom:8px;align-items:center">
+      <span style="font-size:13px;color:var(--ink2)" title="CALCULATIONS-V4 §6.1: cells with a real baseline and a real window period both measured from actual sessions - no fitted-curve fallback involved. The defensible read on skill change, at the cost of excluding every cell still too new to have one.">
+        <b>Matched</b> — cells with real data both sides
+      </span>
+      <span class="note" id="matchedHeadlineNote" style="margin:0"></span>
+    </div>
+    <div class="cards" id="matchedHeadlineCards" style="margin-bottom:8px"></div>
+  </div>
+  <div class="sectionbar" style="margin-bottom:8px;align-items:center">
+    <span style="font-size:13px;color:var(--ink2)" title="CALCULATIONS-V4 §6.1: every cell above, plus new/thin scenarios whose baseline is a fitted familiarisation-curve asymptote rather than real earlier data (flagged 'early' below). Moves with new-scenario progress that Matched can't see, at the cost of leaning on a fitted estimate for part of the basket.">
+      <b>All cells</b> — includes fitted-asymptote fallbacks for new scenarios
+    </span>
+  </div>
   <div class="cards" id="overview"></div>
   <div class="explainrow" id="caveatsRow" style="display:none">
     <button type="button" class="explaintoggle" id="caveatsBtn" aria-expanded="false">Show figure explanation</button>

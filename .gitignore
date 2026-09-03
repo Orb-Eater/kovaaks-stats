@@ -18,3 +18,7 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+.claude/
+
+# Batch 11 raw-data export - per-install generated output, same as cache/logs.
+SCENARIO DATA EXPORT/

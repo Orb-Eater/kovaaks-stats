@@ -25,10 +25,49 @@ const TUNING = {
   TRIM_FRACTION: 0.10,   // 10% off each end; needs n>=10 to remove anything
   TRIM_MIN_N: 10,
 
-  // When a proper comparison-period baseline is too thin, fall back to this
-  // many of the scenario's earliest-ever runs as a standing reference instead
-  // of showing nothing (Batch 8). Point estimate only — never given a CI.
-  EARLY_BASELINE_N: 5,
+  // --- session unit (CALCULATIONS-V3 §1, §3, §5) --------------------------
+  // Runs inside one session share warm-up state, fatigue, mood and hardware -
+  // they are not independent observations. The corpus validation run measured
+  // this directly: icc_median 0.58 at a typical session of 33 runs implies
+  // every CI the *_MIN_N thresholds above were gating was about a quarter of
+  // its correct width (V3.2-PATCH.md §3). Fix: reduce each session to one
+  // number per (scenario x cm-cluster) cell - its trimmed mean, the spec's
+  // fallback method, since no curve-fitting library exists here to run the
+  // preferred fitted-plateau model - and gate/measure ceiling, typical and
+  // floor off THOSE values instead of raw runs. PB stays run-based (a record
+  // is a record); nMin/powered/CSV run counts are untouched, so this only
+  // changes what feeds the three %-figures and their intervals.
+  SESSION_MIN_RUNS: 3,     // a session contributing fewer runs to a cell isn't a session estimate
+  CEILING_MIN_SESS: 8,
+  TYPICAL_MIN_SESS: 6,
+  FLOOR_MIN_SESS: 8,
+
+  // CALCULATIONS-V4 §8: when a proper comparison-period baseline is too thin,
+  // fall back to the fitted familiarisation-curve asymptote (see
+  // fitFamiliarisation()) as a standing reference instead of showing nothing.
+  // Needs at least this many runs to fit; below it, show nothing rather than
+  // baseline off contaminated early data (replaces the old EARLY_BASELINE_N,
+  // which used raw first-N runs — retired per §13).
+  FAMILIAR_MIN_RUNS: 25,
+  // Fixed decay constant for the familiarisation curve, corpus-measured
+  // (fitting exponential vs power-law to 7,910 published learning series
+  // found exponential wins on unaveraged per-subject data; confirmed 39-6 on
+  // this corpus too). Fixing it is what makes the per-cell fit a closed-form
+  // linear regression instead of needing a nonlinear solver — see
+  // fitFamiliarisation(). A cell is "in familiarisation" below ~3*LAMBDA runs.
+  LAMBDA: 66.69,
+
+  // Harrell-Davis quantile estimator (CALCULATIONS-V4 §4.2) replaces the
+  // traditional order-statistic Ceiling/Floor for session values: its bias is
+  // smaller and flatter across sample sizes (traditional -0.6%/-0.8%/-0.3% at
+  // n=15/25/40 vs HD +0.31%/+0.30%/+0.19%), at the cost of being ~2x more
+  // sensitive to a single new max/min - accepted since n-bias is systematic
+  // and an added max is occasional. n-matching (§4.3) handles the case where
+  // a window/baseline comparison's two periods have very different session
+  // counts, which would otherwise let that n-dependent bias masquerade as a
+  // real change.
+  N_MATCH_RATIO: 1.5,      // subsample the larger side once it exceeds the smaller by this multiple
+  N_MATCH_REPS: 200,       // draws to average over - 25 swings the estimate by 2x between runs
 
   // --- confounds (STATISTICS.md §3) -------------------------------------
   // Half an hour with no completed run and the next one starts a new session.
@@ -104,10 +143,25 @@ const TUNING = {
   // per session (Batch 8) — but not before the session is long enough for the
   // ratio to mean anything; a two-run session reads noisy either way.
   LOW_ACTIVE_PCT: 40,
-  LOW_ACTIVE_MIN_SPAN_SEC: 600
+  LOW_ACTIVE_MIN_SPAN_SEC: 600,
+
+  // --- attribution (CALCULATIONS-V4 §10.3) --------------------------------
+  // A scenario needs at least this many lagged week-over-week pairs (dose in
+  // week t, outcome change t -> t+1) before its correlation means anything -
+  // roughly the same order as FLOOR_MIN_SESS above, for the same reason: a
+  // handful of points can produce any correlation by chance.
+  ATTRIB_MIN_WEEKS: 8,
+  // "Run the identical test against NEG_CONTROL_N scenarios with no plausible
+  // relationship" - the spec's own number.
+  NEG_CONTROL_N: 10
 };
 let excludeWarmup = true;
 let excludeRefam = true;
+// Off by default: these overlay a trader's-eye read (trendlines through the
+// first/latest swing high and low, projected across the whole chart, plus a
+// raw run-to-run line) on top of the chart's normal smoothed stats. Useful
+// when you want it, noise when you don't - hence one toggle, not three.
+let tradingLines = false;
 
 const _stubs = new Map();
 const $ = s => {
@@ -397,6 +451,188 @@ function quantileSE(sorted, p){
   return Math.sqrt(p*(1-p)/n) / dens;
 }
 
+// Harrell-Davis quantile (CALCULATIONS-V4 §4.2): a weighted average of every
+// order statistic, the weights coming from the regularized incomplete beta
+// function - unlike quantileAt() above, which only ever looks at one or two
+// points. Used for session-value Ceiling/Floor; quantileAt() stays as-is for
+// the raw-run PB-ratio/trend readouts elsewhere in this file, which were not
+// part of what CALCULATIONS-V4 §4 flagged.
+function logGamma(x){
+  const g = 7;
+  const c = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7
+  ];
+  if(x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - logGamma(1 - x);
+  x -= 1;
+  let a = c[0];
+  const t = x + g + 0.5;
+  for(let i = 1; i < g + 2; i++) a += c[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+function betacf(x, a, b){
+  const MAXIT = 200, EPS = 3e-16, FPMIN = 1e-300;
+  const qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1, d = 1 - qab * x / qap;
+  if(Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d;
+  let h = d;
+  for(let m = 1; m <= MAXIT; m++){
+    const m2 = 2 * m;
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d; if(Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c; if(Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d; if(Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c; if(Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if(Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+// Regularized incomplete beta I_x(a,b), Numerical Recipes' betai.
+function betaInc(x, a, b){
+  if(x <= 0) return 0;
+  if(x >= 1) return 1;
+  const bt = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) +
+    a * Math.log(x) + b * Math.log(1 - x));
+  if(x < (a + 1) / (a + b + 2)) return bt * betacf(x, a, b) / a;
+  return 1 - bt * betacf(1 - x, b, a) / b;
+}
+function hdQuantile(sorted, p){
+  const n = sorted.length;
+  if(!n) return null;
+  const a = (n + 1) * p, b = (n + 1) * (1 - p);
+  let q = 0, prev = 0;
+  for(let i = 1; i <= n; i++){
+    const cur = betaInc(i / n, a, b);
+    q += (cur - prev) * sorted[i - 1];
+    prev = cur;
+  }
+  return q;
+}
+// SE of an HD quantile via jackknife (CALCULATIONS-V4 §4.4) - deliberately
+// not the order-statistic-spacing density used by quantileSE() below, which
+// the spec calls out by name as unusable here ("at p=0.90 with n=20 the
+// density comes from the two or three sparsest points in the sample").
+function hdQuantileSE(sorted, p){
+  const n = sorted.length;
+  if(n < 2) return null;
+  const loo = [];
+  for(let i = 0; i < n; i++) loo.push(hdQuantile(sorted.slice(0,i).concat(sorted.slice(i+1)), p));
+  const qbar = mean(loo);
+  const ss = loo.reduce((s,q) => s + (q-qbar)*(q-qbar), 0);
+  return Math.sqrt((n-1)/n * ss);
+}
+// Exact expected maximum of n iid standard normal draws (CALCULATIONS-V4 §4.1),
+// index n-1. Precomputed once offline via Simpson's-rule numerical integration
+// of n * integral(x * phi(x) * Phi(x)^(n-1) dx, -9, 9) and pasted in as a
+// literal table — Blom's approximation is documented as inaccurate for the
+// maximum below n~100, and sessions here run 15-40 runs. The generator isn't
+// shipped; values were cross-checked against published expected-order-
+// statistic tables (e.g. n=10 -> 1.5388, n=100 -> 2.5077) to 3-4 decimals.
+const EXPECTED_MAX_TABLE = [
+0.000000,0.564190,0.846284,1.029375,1.162964,1.267206,1.352178,1.423600,1.485013,1.538753,
+1.586436,1.629228,1.667990,1.703382,1.735914,1.765992,1.793942,1.820032,1.844482,1.867475,
+1.889168,1.909693,1.929162,1.947675,1.965315,1.982158,1.998270,2.013708,2.028523,2.042762,
+2.056465,2.069670,2.082409,2.094714,2.106610,2.118124,2.129278,2.140092,2.150587,2.160778,
+2.170683,2.180317,2.189692,2.198823,2.207721,2.216396,2.224860,2.233122,2.241191,2.249075,
+2.256782,2.264320,2.271695,2.278914,2.285984,2.292910,2.299697,2.306351,2.312877,2.319279,
+2.325561,2.331729,2.337785,2.343734,2.349579,2.355323,2.360971,2.366524,2.371986,2.377359,
+2.382647,2.387852,2.392976,2.398022,2.402992,2.407888,2.412713,2.417467,2.422153,2.426774,
+2.431330,2.435823,2.440256,2.444629,2.448944,2.453202,2.457406,2.461556,2.465653,2.469699,
+2.473695,2.477642,2.481542,2.485395,2.489202,2.492965,2.496685,2.500362,2.503997,2.507591,
+2.511146,2.514661,2.518138,2.521578,2.524981,2.528348,2.531680,2.534977,2.538240,2.541471,
+2.544668,2.547834,2.550969,2.554072,2.557146,2.560190,2.563205,2.566191,2.569149,2.572080,
+2.574984,2.577861,2.580712,2.583537,2.586338,2.589113,2.591864,2.594591,2.597295,2.599975,
+2.602632,2.605268,2.607881,2.610472,2.613042,2.615591,2.618119,2.620627,2.623114,2.625582,
+2.628031,2.630460,2.632871,2.635262,2.637636,2.639991,2.642329,2.644649,2.646951,2.649237,
+2.651506,2.653758,2.655994,2.658214,2.660418,2.662606,2.664779,2.666936,2.669078,2.671206,
+2.673319,2.675417,2.677501,2.679571,2.681628,2.683670,2.685699,2.687714,2.689717,2.691706,
+2.693682,2.695646,2.697597,2.699535,2.701461,2.703376,2.705278,2.707168,2.709047,2.710914,
+2.712770,2.714614,2.716448,2.718270,2.720081,2.721882,2.723672,2.725451,2.727220,2.728979,
+2.730727,2.732466,2.734194,2.735913,2.737622,2.739321,2.741011,2.742691,2.744362,2.746024,
+2.747676,2.749320,2.750955,2.752580,2.754197,2.755806,2.757406,2.758997,2.760580,2.762154,
+2.763721,2.765279,2.766829,2.768371,2.769905,2.771432,2.772950,2.774461,2.775965,2.777460,
+2.778949,2.780430,2.781903,2.783370,2.784829,2.786281,2.787726,2.789164,2.790595,2.792019,
+2.793437,2.794848,2.796252,2.797649,2.799040,2.800424,2.801802,2.803174,2.804539,2.805898,
+2.807251,2.808598,2.809938,2.811273,2.812601,2.813924,2.815241,2.816551,2.817856,2.819156,
+2.820449,2.821737,2.823020,2.824297,2.825568,2.826834,2.828094,2.829349,2.830599,2.831843,
+2.833082,2.834316,2.835545,2.836769,2.837988,2.839201,2.840410,2.841614,2.842812,2.844006,
+2.845195,2.846379,2.847559,2.848734,2.849904,2.851069,2.852230,2.853386,2.854538,2.855685,
+2.856827,2.857966,2.859099,2.860229,2.861354,2.862474,2.863591,2.864703,2.865811,2.866915,
+2.868014,2.869110,2.870201,2.871288,2.872372,2.873451,2.874526,2.875597,2.876665,2.877728
+];
+// Falls back beyond the table (a scenario played more than 300 times inside
+// the active window) to the standard second-order Gumbel asymptotic - but
+// anchored to the table's own last value rather than used raw. The raw
+// asymptotic is a slowly-converging approximation and sits visibly below the
+// exact integral even at n=300 (2.745 vs 2.878), which would make expected-max
+// dip the moment a scenario crosses 300 runs; adding the table/asymptotic gap
+// at the boundary keeps it continuous while still following the asymptotic's
+// (correct) slope beyond it. Exact integration stops mattering out here
+// anyway - Blom-style approximations are already fine above n~100.
+const _EM_ASYM_N = n => { const l = Math.log(n); return Math.sqrt(2*l) - (Math.log(l) + Math.log(4*Math.PI)) / (2*Math.sqrt(2*l)); };
+const _EM_ANCHOR = EXPECTED_MAX_TABLE[EXPECTED_MAX_TABLE.length-1] - _EM_ASYM_N(EXPECTED_MAX_TABLE.length);
+function expectedMaxStd(n){
+  if(n < 1) return null;
+  if(n <= EXPECTED_MAX_TABLE.length) return EXPECTED_MAX_TABLE[n-1];
+  return _EM_ASYM_N(n) + _EM_ANCHOR;
+}
+// pb_surprise (CALCULATIONS-V4 §4.1): how many sigma the actual record sits
+// above (or below) the record an unchanging player would be expected to reach
+// from n runs alone - max() rises with n on its own, so a raw PB can't say
+// anything by itself (see wherever "record" renders). Needs a non-junk sigma,
+// so gated the same way CV is (TUNING.HARD_FLOOR_N: "junk below it").
+function pbSurprise(sorted){
+  const n = sorted.length;
+  if(n < TUNING.HARD_FLOOR_N) return null;
+  const m = mean(sorted), s = sd(sorted);
+  if(!(s > 0)) return null;
+  return (sorted[n-1] - m) / s - expectedMaxStd(n);
+}
+function sampleWithoutReplacement(arr, k){
+  const a = arr.slice(), n = a.length;
+  for(let i = 0; i < k; i++){
+    const j = i + Math.floor(Math.random() * (n - i));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a.slice(0, k);
+}
+// n-matching (CALCULATIONS-V4 §4.3): HD's bias depends on n, so comparing an
+// n=40 window against an n=8 baseline directly would read that bias gap as a
+// real change. Once the two counts differ by more than N_MATCH_RATIO, the
+// larger side is repeatedly subsampled down to the smaller side's n and
+// averaged; the spread across those draws becomes its SE, deliberately wider
+// than a single full-n jackknife would give, since resampling is itself a
+// source of uncertainty here.
+function nMatchedHD(wSorted, bSorted, p){
+  const nw = wSorted.length, nb = bSorted.length;
+  const ratio = (nw && nb) ? Math.max(nw/nb, nb/nw) : Infinity;
+  if(nw < 2 || nb < 2 || !(ratio > TUNING.N_MATCH_RATIO)){
+    return {
+      wQ: hdQuantile(wSorted, p), wSE: hdQuantileSE(wSorted, p),
+      bQ: hdQuantile(bSorted, p), bSE: hdQuantileSE(bSorted, p)
+    };
+  }
+  const target = Math.min(nw, nb);
+  const matched = sorted => {
+    if(sorted.length === target) return {Q: hdQuantile(sorted, p), SE: hdQuantileSE(sorted, p)};
+    const draws = [];
+    for(let i = 0; i < TUNING.N_MATCH_REPS; i++){
+      draws.push(hdQuantile(sampleWithoutReplacement(sorted, target).sort((a,b)=>a-b), p));
+    }
+    return {Q: mean(draws), SE: sd(draws)};
+  };
+  const w = matched(wSorted), b = matched(bSorted);
+  return {wQ: w.Q, wSE: w.SE, bQ: b.Q, bSE: b.SE};
+}
+
 function trimSlice(sorted, frac){
   if(!(frac > 0) || sorted.length < TUNING.TRIM_MIN_N) return sorted;
   const cut = Math.floor(sorted.length * frac);
@@ -408,20 +644,60 @@ function trimmedMeanSE(sorted, frac){
   return sd(kept) / Math.sqrt(kept.length);
 }
 
+// CALCULATIONS-V4 §8: a cell's first few runs are the most familiarisation-
+// contaminated data it will ever produce, so using them raw as a baseline
+// (the old EARLY_BASELINE_N approach) inflates apparent improvement on every
+// new scenario — and directly contradicts the re-familiarisation rule (§2.3),
+// which treats those same early scores as understating true skill. Fit the
+// familiarisation curve instead and use its asymptote as the level.
+//
+// score(k) = A - B*exp(-(k+E)/lambda), k = cumulative runs on this cell.
+// lambda is fixed at its corpus-measured value (66.69 runs — fitting both
+// exponential and power-law forms to 7,910 published learning series found
+// exponential wins on unaveraged per-subject data, and it wins 39-6 on this
+// corpus too). With lambda fixed, exp(-(k+E)/lambda) = exp(-E/lambda) *
+// exp(-k/lambda), so the model is linear in A and C = B*exp(-E/lambda):
+// score(k) = A - C*exp(-k/lambda) — an ordinary least-squares line through
+// (exp(-k/lambda), score(k)). B and E are only identifiable as their
+// combined product C from a single cell's own history (there is no
+// cross-scenario transfer model here), so C stands in as the fitted
+// amplitude and only A — "the skill estimate, comparable across cells" — is
+// used as the baseline level, per spec: "Report A as the level, never raw
+// early scores."
+function fitFamiliarisation(scoresChronological){
+  const n = scoresChronological.length;
+  if(n < TUNING.FAMILIAR_MIN_RUNS) return null;
+  const lambda = TUNING.LAMBDA;
+  const xs = scoresChronological.map((_, i) => Math.exp(-(i+1) / lambda));
+  const mx = mean(xs), my = mean(scoresChronological);
+  let sxy = 0, sxx = 0;
+  for(let i=0; i<n; i++){
+    const dx = xs[i] - mx;
+    sxy += dx * (scoresChronological[i] - my);
+    sxx += dx * dx;
+  }
+  if(sxx === 0) return null;
+  const slope = sxy / sxx;             // slope of score vs exp(-k/lambda) = -C
+  const A = my - slope * mx;
+  // "Mark a cell in familiarisation while k < 3*lambda (~200 runs) and
+  // exclude it from the matched basket until it clears" — the basket-level
+  // exclusion is §6.1's matched/all-cells split (a separate roadmap stop);
+  // this flag is surfaced here so callers can label the figure honestly.
+  return {n, level: A, amplitude: -slope, lambda, inFamiliarisation: n < 3*lambda};
+}
+
 // A permanent low bar for scenarios/cells that don't yet have a real earlier
-// period to compare against: your first EARLY_BASELINE_N runs, ever. Still
-// real data, just a different reference point — and deliberately given no CI,
-// because 2-5 samples can estimate a level but not its precision.
+// period to compare against: the fitted familiarisation asymptote (§8). One
+// number stands in for ceiling/typical/floor alike — a curve fit estimates a
+// central skill level, not separate quantiles — and is deliberately given no
+// CI, matching the old early-baseline's "level, not precision" contract.
 function earlyBaseline(scoresChronological){
-  const n = Math.min(TUNING.EARLY_BASELINE_N, scoresChronological.length);
-  if(n < 2) return null;
-  const early = scoresChronological.slice(0, n).slice().sort((a,b)=>a-b);
+  const fit = fitFamiliarisation(scoresChronological);
+  if(!fit) return null;
   return {
-    n,
-    ceiling: quantileAt(early, TUNING.CEILING_Q),
-    typical: trimmedMean(early, TUNING.TRIM_FRACTION),
-    floor: quantileAt(early, TUNING.FLOOR_Q),
-    avg: mean(early)
+    n: fit.n,
+    ceiling: fit.level, typical: fit.level, floor: fit.level, avg: fit.level,
+    lambda: fit.lambda, inFamiliarisation: fit.inFamiliarisation
   };
 }
 
@@ -444,10 +720,11 @@ function requiredN(cv){
 // rather than a precise start-to-start measurement.
 // ---------------------------------------------------------------------------
 function annotateRuns(){
-  let prevT = null, sessionStart = null;
+  let prevT = null, sessionStart = null, sessId = -1;
   RUNS.forEach(r => {
-    if(prevT === null || (r.date - prevT) > TUNING.SESSION_GAP_MIN*60000) sessionStart = r.date;
+    if(prevT === null || (r.date - prevT) > TUNING.SESSION_GAP_MIN*60000){ sessionStart = r.date; sessId++; }
     r.sessElapsedSec = (r.date - sessionStart) / 1000;
+    r.sessId = sessId;
     prevT = r.date;
     r.excl = (r.sessElapsedSec < TUNING.WARMUP_SECONDS) ? 'warmup' : null;
   });
@@ -617,18 +894,47 @@ function trimmedMean(sorted, frac){
   return kept.length ? mean(kept) : mean(sorted);
 }
 
+// Reduces runs to one value per session (CALCULATIONS-V3 §3) - the spec's
+// fallback method, trimmed_mean of the session's runs. The preferred method
+// (fit score(i) = P*(1-exp(-i/tau)) - f*max(0,i-i_fatigue) per session and
+// take P) needs a nonlinear curve-fit this stdlib-only app doesn't have, and
+// the fatigue half of that model didn't reproduce against live data anyway
+// (parked, V3.3-CORRECTIONS.md §6 item 5) - so the fallback is what's built.
+// `runs` should already be warmup/refam/reset/zero-filtered (i.e. drawn from
+// `pool`); the WARMUP_SECONDS exclusion upstream already plays the role the
+// spec gives `runs[ceil(tau_user):]`. Sessions under SESSION_MIN_RUNS are
+// dropped, not padded - one run is not a session estimate.
+function sessionValues(runs){
+  const bySess = {};
+  runs.forEach(r => { if(r.sessId != null) (bySess[r.sessId] ||= []).push(r.score); });
+  return Object.values(bySess)
+    .filter(scores => scores.length >= TUNING.SESSION_MIN_RUNS)
+    .map(scores => trimmedMean(scores.slice().sort((a,b)=>a-b), TUNING.TRIM_FRACTION));
+}
+// Session-value inputs use lower minimums (§5) than raw-run inputs, since a
+// session is worth far more than a run - pass this as the second arg.
+const SESS_THRESH = {CEILING_MIN_N: TUNING.CEILING_MIN_SESS, TYPICAL_MIN_N: TUNING.TYPICAL_MIN_SESS, FLOOR_MIN_N: TUNING.FLOOR_MIN_SESS};
+
 // The measured metrics are all quantile- or trim-based so none of them can be
 // moved wholesale by a single run, and none of them drift with sample size.
 // `record` (true max) is kept for display only — never turned into a %.
-function stats(scores){
+// `thresh` overrides the *_MIN_N gates below (defaults to TUNING itself) —
+// used to feed this the same function with session-value minimums instead of
+// run-value ones, without a second copy of the gating logic. `hd` switches
+// Ceiling/Floor to the Harrell-Davis estimator (CALCULATIONS-V4 §4.2) — pass
+// it only for session-value stats; raw-run callers (PB-ratio/trend readouts)
+// keep the traditional order-statistic quantile they were validated against.
+function stats(scores, thresh, hd){
+  thresh = thresh || TUNING;
   const s = [...scores].sort((a,b)=>a-b);
   const m = mean(s);
+  const q = hd ? hdQuantile : quantileAt;
   return {
     n: s.length, sorted: s,
     record:  s.length ? s[s.length-1] : null,
-    ceiling: s.length >= TUNING.CEILING_MIN_N ? quantileAt(s, TUNING.CEILING_Q) : null,
-    typical: s.length >= TUNING.TYPICAL_MIN_N ? trimmedMean(s, TUNING.TRIM_FRACTION) : null,
-    floor:   s.length >= TUNING.FLOOR_MIN_N   ? quantileAt(s, TUNING.FLOOR_Q)   : null,
+    ceiling: s.length >= thresh.CEILING_MIN_N ? q(s, TUNING.CEILING_Q) : null,
+    typical: s.length >= thresh.TYPICAL_MIN_N ? trimmedMean(s, TUNING.TRIM_FRACTION) : null,
+    floor:   s.length >= thresh.FLOOR_MIN_N   ? q(s, TUNING.FLOOR_Q)   : null,
     mean: m, med: median(s), worst: s[0],
     cv: m > 0 ? sd(s)/m*100 : null
   };
@@ -639,24 +945,31 @@ function stats(scores){
 // missing/too-thin real baseline so a % is always shown (Batch 8) rather than
 // a dash — flagged with `early: true` so the UI can say why there's no CI.
 function changeWithSE(w, b, key, fallback){
-  const wv = w[key];
-  let bv = b[key], early = false;
+  let wv = w[key], bv = b[key];
+  let early = false;
   if(bv == null && fallback && fallback[key] != null && fallback[key] > 0){
     bv = fallback[key];
     early = true;
   }
   if(wv == null || bv == null || !(bv > 0)) return null;
-  const pct = (wv - bv)/bv*100;
-  if(early) return {pct, se: null, early: true, earlyN: fallback.n};
+  if(early) return {pct: (wv - bv)/bv*100, se: null, early: true, earlyN: fallback.n};
   let seW, seB;
   if(key === 'typical'){
     seW = trimmedMeanSE(w.sorted, TUNING.TRIM_FRACTION);
     seB = trimmedMeanSE(b.sorted, TUNING.TRIM_FRACTION);
   } else {
+    // Ceiling/Floor are Harrell-Davis quantiles of session values, n-matched
+    // (CALCULATIONS-V4 §4.2/§4.3) when the two periods' session counts differ
+    // materially — recompute wv/bv from the matched draws rather than the
+    // plain per-side w[key]/b[key], so the % and its SE come from the same
+    // (possibly subsampled) estimate.
     const q = key === 'ceiling' ? TUNING.CEILING_Q : TUNING.FLOOR_Q;
-    seW = quantileSE(w.sorted, q);
-    seB = quantileSE(b.sorted, q);
+    const m = nMatchedHD(w.sorted, b.sorted, q);
+    wv = m.wQ; bv = m.bQ;
+    seW = m.wSE; seB = m.bSE;
   }
+  if(!(bv > 0)) return null;
+  const pct = (wv - bv)/bv*100;
   if(seW == null || seB == null) return {pct, se: null};
   return {pct, se: Math.sqrt(seW*seW + seB*seB)/bv*100};
 }
@@ -673,20 +986,25 @@ function computeCells(pool, windowStart, windowEnd, cmpMode, clusters){
     const cl = (clusters && clusters.length && r.cm360 != null)
       ? clusterIndexFor(r.cm360, clusters) : -1;
     const key = r.scen + ' ' + cl;
-    const c = cells[key] ||= {scen: r.scen, cluster: cl, win: [], base: [], all: [], allRuns: []};
+    const c = cells[key] ||= {scen: r.scen, cluster: cl, win: [], base: [], all: [], allRuns: [], winRuns: [], baseRuns: []};
     c.all.push(r.score);
     c.allRuns.push(r);
     const t = r.date;
     if(cmpMode === 'prev'){
-      if(t >= windowStart && t <= windowEnd) c.win.push(r.score);
-      else if(t >= baseStart && t < windowStart) c.base.push(r.score);
+      if(t >= windowStart && t <= windowEnd){ c.win.push(r.score); c.winRuns.push(r); }
+      else if(t >= baseStart && t < windowStart){ c.base.push(r.score); c.baseRuns.push(r); }
     } else {
-      if(t >= mid && t <= windowEnd) c.win.push(r.score);
-      else if(t >= windowStart && t < mid) c.base.push(r.score);
+      if(t >= mid && t <= windowEnd){ c.win.push(r.score); c.winRuns.push(r); }
+      else if(t >= windowStart && t < mid){ c.base.push(r.score); c.baseRuns.push(r); }
     }
   });
   return Object.values(cells).map(c => {
     const w = stats(c.win), b = stats(c.base);
+    // Ceiling/typical/floor are measured on session values, not raw runs
+    // (CALCULATIONS-V3 §1/§3/§5) - w/b above stay raw-run-based since nMin/
+    // powered/CSV export all still count runs, same as before this change.
+    const wSess = stats(sessionValues(c.winRuns), SESS_THRESH, true);
+    const bSess = stats(sessionValues(c.baseRuns), SESS_THRESH, true);
     const allSorted = [...c.all].sort((x,y)=>x-y);
     const am = mean(allSorted);
     const cv = (allSorted.length >= TUNING.HARD_FLOOR_N && am > 0) ? sd(allSorted)/am*100 : null;
@@ -697,11 +1015,11 @@ function computeCells(pool, windowStart, windowEnd, cmpMode, clusters){
       ? [...c.allRuns].sort((x,y)=>x.date-y.date).map(r=>r.score) : c.all;
     const fallback = earlyBaseline(chronological);
     return {
-      scen: c.scen, cluster: c.cluster, w, b, cv, nRequired: nReq,
+      scen: c.scen, cluster: c.cluster, w, b, wSess, bSess, cv, nRequired: nReq,
       nMin: Math.min(w.n, b.n), powered: Math.min(w.n, b.n) >= nReq,
-      ceiling: changeWithSE(w, b, 'ceiling', fallback),
-      typical: changeWithSE(w, b, 'typical', fallback),
-      floor:   changeWithSE(w, b, 'floor', fallback)
+      ceiling: changeWithSE(wSess, bSess, 'ceiling', fallback),
+      typical: changeWithSE(wSess, bSess, 'typical', fallback),
+      floor:   changeWithSE(wSess, bSess, 'floor', fallback)
     };
   });
 }
@@ -749,6 +1067,12 @@ function computeTrends(pool, windowStart, windowEnd, cmpMode, minRuns, clusters,
     const rs = runsByScen[scen] || [];
     if(!rs.length) return null;
     const st = stats(rs.map(r=>r.score));
+    // st.n/record/mean/med/cv stay raw-run-based (they feed the "N runs" meta
+    // text, CSV export, "most played" sort and density heuristics) - only the
+    // three session-gated figures get overlaid onto this same object.
+    const sessSt = stats(sessionValues(rs), SESS_THRESH, true);
+    st.ceiling = sessSt.ceiling; st.typical = sessSt.typical; st.floor = sessSt.floor;
+    st.nSessions = sessSt.n;
     // Total paired runs across cells - stratifying by cm splits the data up, so
     // the best single cell badly understates what's actually available.
     const nMin = cs.reduce((a,c) => a + Math.min(c.w.n, c.b.n), 0);
@@ -1167,6 +1491,32 @@ function render(){
   const analysisClusters = hasCmData ? computeCmClusters(cmAnalysisPool) : [];
   const rows = computeTrends(pool, windowStart, windowEnd, effCmpMode, minRuns, analysisClusters, displayPool);
   renderCalendar(pool, displayPool, analysisClusters, effCmpMode);
+
+  // CALCULATIONS-V4 §10.1: the benchmark aggregate is the app's primary,
+  // most-trusted metric (fixed basket, externally anchored effect size) — but
+  // it only exists for suites the user has actually played scenarios from.
+  // Build every playable suite's normalized runs, auto-pick the one with the
+  // most matched runs as the headline unless the user has picked one, and
+  // hide the whole section when nothing qualifies.
+  let benchAgg = null, benchAggName = null, benchChoices = [], attrib = null;
+  if(has('#benchHeadlineWrap') && BENCH_DATA && BENCH_DATA.length){
+    benchChoices = BENCH_DATA
+      .map(b => ({b, normRuns: benchmarkNormalizedRuns(b, pool)}))
+      .filter(x => x.normRuns.length >= TUNING.HARD_FLOOR_N)
+      .sort((a,b) => b.normRuns.length - a.normRuns.length);
+    if(benchChoices.length){
+      const picked = lsGet('kva_headline_bench');
+      const match = picked && benchChoices.find(x => x.b.name === picked);
+      const chosen = match || benchChoices[0];
+      benchAggName = chosen.b.name;
+      benchAgg = computeBenchmarkAggregate(chosen.normRuns, windowStart, windowEnd, effCmpMode);
+      // §10.3 always runs over full history regardless of the window
+      // selector — chosen.normRuns already is full history (see
+      // computeBenchmarkAggregate's own note: window filtering happens
+      // inside it, not upstream), so this reuses it and `pool` as-is.
+      if(has('#attribWrap')) attrib = computeAttribution(chosen.b, chosen.normRuns, pool);
+    }
+  }
   const runsInWindow = pool.filter(r => r.date >= windowStart && r.date <= windowEnd).length;
 
   // Cell fragmentation readout — with 2,000+ scenarios and dozens of cm/360
@@ -1190,6 +1540,23 @@ function render(){
   const overallPb  = overallOf(allCells.map(c=>c.ceiling));
   const overallAvg = overallOf(allCells.map(c=>c.typical));
   const overallLow = overallOf(allCells.map(c=>c.floor));
+
+  // CALCULATIONS-V4 §6.1: mixing cells with a real baseline into the same
+  // pool as cells leaning on earlyBaseline()'s fitted-asymptote fallback
+  // compares different baskets across the window - the index-number problem.
+  // Report both: Matched (real data both sides only) is the defensible read
+  // on skill change; All cells folds the fallback cells back in, which is
+  // what makes new/thin scenarios move the headline at all. When they
+  // diverge, that gap *is* the familiarisation signal, not noise to hide.
+  const matchedPb  = overallOf(allCells.filter(c => c.ceiling && !c.ceiling.early).map(c=>c.ceiling));
+  const matchedAvg = overallOf(allCells.filter(c => c.typical && !c.typical.early).map(c=>c.typical));
+  const matchedLow = overallOf(allCells.filter(c => c.floor   && !c.floor.early).map(c=>c.floor));
+  const typicalCells = allCells.filter(c => c.typical != null);
+  const matchedComposition = {
+    matched: typicalCells.filter(c => !c.typical.early).length,
+    all: typicalCells.length
+  };
+
   const avgVsPb = (overallAvg && overallPb)
     ? {pct: overallAvg.pct - overallPb.pct,
        se: (overallAvg.se!=null && overallPb.se!=null) ? Math.sqrt(overallAvg.se**2 + overallPb.se**2) : null}
@@ -1249,6 +1616,20 @@ function render(){
     return (b.avgTrend ?? -1e9) - (a.avgTrend ?? -1e9);
   });
 
+  // "Recently played" is a "what did I just do" view, not a "what can be
+  // calculated" view - a scenario played yesterday but too few times yet to
+  // clear minRuns would otherwise vanish from its own recency sort. Pull in
+  // anything computeTrends would normally drop for being under minRuns, but
+  // only for this sort and only for the card list, not the headline stats
+  // (which stay on `rows` exactly as before).
+  let displayRows = rows;
+  if(sortBy==='recent'){
+    const already = new Set(rows.map(r => r.scen));
+    const allPlayed = computeTrends(pool, windowStart, windowEnd, effCmpMode, 1, analysisClusters, displayPool);
+    const extra = allPlayed.filter(r => !already.has(r.scen));
+    displayRows = rows.concat(extra).sort((a,b) => lastAt(b) - lastAt(a));
+  }
+
   const pctStr = v => v===null ? '—' : (v>=0?'+':'') + v.toFixed(1) + '%';
   const cls = v => v===null ? '' : (v>=0?'up':'dn');
   const deltaSpan = v => v===null ? '<span style="color:var(--ink3)">—</span>' : '<span class="'+cls(v)+'">'+pctStr(v)+'</span>';
@@ -1271,10 +1652,11 @@ function render(){
       ? ', 95% CI ±' + (TUNING.CI_Z*e.se).toFixed(1) + '% — crosses zero, not distinguishable from no change.'
       : ' — measured against an early baseline, not a confidence interval.') +
     '">within noise</span>';
-  // A % built from earlyBaseline() (Batch 8) gets a small marker rather than a
-  // CI, because 2-5 samples can say roughly where you started but not how
-  // precisely — showing an interval on that would overstate what it knows.
-  const earlyTag = n => '<abbr class="earlytag" title="Baseline is your first '+n+' run'+(n===1?'':'s')+
+  // A % built from earlyBaseline() (CALCULATIONS-V4 §8) gets a small marker
+  // rather than a CI: it's a fitted curve's asymptote, not a sampled interval,
+  // so there's no standard error to show — showing one would overstate what
+  // it knows.
+  const earlyTag = n => '<abbr class="earlytag" title="Baseline is a familiarisation curve fitted to your first '+n+' run'+(n===1?'':'s')+
     ' of this — there is no separate earlier period to compare against yet, so treat this as a rough starting point, not a measured change.">early</abbr>';
   const estSpan = e => (!e || e.pct == null)
     ? '<span style="color:var(--ink3)">—</span>'
@@ -1328,9 +1710,9 @@ function render(){
   const TIPS = {
     'Runs in window': 'Total runs across all scenarios shown, inside the selected time window, cm/360 filter and outlier exclusion.',
     'Scenarios shown': 'Distinct scenarios with at least the minimum run count in this window.',
-    'Ceiling change': 'Your 90th-percentile score vs its baseline — what a good run looks like. Deliberately NOT your best run: a max grows with the number of runs you play, so it would show "improvement" from sample size alone. Inverse-variance weighted across every scenario × cm cell, shown with a 95% interval. "Within noise" means the interval crosses zero, i.e. not distinguishable from no change — hover it for the actual figure.',
-    'Typical change': 'Your 10%-trimmed mean vs its baseline — the middle of your distribution, with the best and worst tails removed so one fluke run cannot move it. Weighted by precision across all scenario × cm cells, with a 95% interval.',
-    'Floor change': 'Your 10th-percentile score vs its baseline — how bad your bad runs are. Needs 20+ runs on each side, otherwise the "bottom 10%" is one or two runs and is meaningless.',
+    'Ceiling change': 'Your 90th-percentile score vs its baseline — what a good run looks like. Deliberately NOT your best run: a max grows with the number of runs you play, so it would show "improvement" from sample size alone. Computed over one value per session (not raw runs) — runs in the same sitting share warm-up, fatigue and mood, so they are not independent samples. Inverse-variance weighted across every scenario × cm cell, shown with a 95% interval. "Within noise" means the interval crosses zero, i.e. not distinguishable from no change — hover it for the actual figure.',
+    'Typical change': 'Your 10%-trimmed mean vs its baseline — the middle of your distribution, with the best and worst tails removed so one fluke run cannot move it. Computed over one value per session, not raw runs, for the same reason as Ceiling. Weighted by precision across all scenario × cm cells, with a 95% interval.',
+    'Floor change': 'Your 10th-percentile score vs its baseline — how bad your bad runs are. Computed over one value per session, not raw runs. Needs 8+ sessions on each side, otherwise the "bottom 10%" is one or two sessions and is meaningless.',
     'Typical vs Ceiling': 'Typical change minus Ceiling change. Positive means your floor is catching up to your peak (consolidation). Negative means your peak is running ahead of your typical result.',
     'Vs prev timeframe': 'This window’s Typical change minus the same figure for the equal-length window before it. Positive means your rate of improvement is accelerating.',
     'Mean spread (CV)': 'Average coefficient of variation (stdev ÷ mean) across shown scenarios — lower means scores cluster tighter around your average.',
@@ -1339,7 +1721,10 @@ function render(){
     'Best cm range': 'The cm/360 with the highest average score relative to your own typical average (same rules as Best performing cm), but grouped into ranges built from your actual data instead of one exact cm — consecutive cms you\'ve used get merged whenever they\'re within ~10% of each other (e.g. 35→38cm merges, 35→55cm doesn\'t), so this pools more data per bucket and is more resistant to a handful of stray runs skewing the result.',
     'Worst cm range': 'The cm range with the lowest average score relative to your own typical average, same stability advantage as Best cm range.',
     'Fast cm (<50cm)': 'Your average score across all cm/360 settings faster than 50cm, relative to your own typical average (minimum 3 runs per scenario at a fast cm).',
-    'Slow cm (>50cm)': 'Your average score across all cm/360 settings slower than 50cm, relative to your own typical average (minimum 3 runs per scenario at a slow cm).'
+    'Slow cm (>50cm)': 'Your average score across all cm/360 settings slower than 50cm, relative to your own typical average (minimum 3 runs per scenario at a slow cm).',
+    'Benchmark ceiling change': 'CALCULATIONS-V4 §10.1: your peak performance on this benchmark suite, on its own rank scale (each scenario\'s raw score converted to a continuous rank-index before averaging, so scenarios with different scales combine fairly). One value per real-world session (all suite scenarios played that session, averaged), then Harrell-Davis p90 with n-matching, same as the per-scenario Ceiling. This is the app\'s primary metric — the suite\'s ranks are a fixed, externally-defined scale, so this effect size can\'t be inflated by cherry-picking your own best scenario/cm the way a self-defined baseline can.',
+    'Benchmark typical change': 'CALCULATIONS-V4 §10.1: your typical performance on this benchmark suite\'s rank scale — 10%-trimmed mean of session values (one per real-world session, averaged across whichever suite scenarios you played that session).',
+    'Benchmark floor change': 'CALCULATIONS-V4 §10.1: your bad-day performance on this benchmark suite\'s rank scale — Harrell-Davis p10 of session values, n-matched against the baseline period, same reliability rules as the per-scenario Floor (needs 8+ sessions each side).'
   };
 
   const cardHtml = ([k,v,c,side,big]) => '<div class="card'+(big?' big':'')+'" title="'+(TIPS[k]||'')+'"><div class="k">'+k+'</div><div class="v'+(c?' '+c:'')+'">'+v+'</div>'+(side||'')+'</div>';
@@ -1351,6 +1736,69 @@ function render(){
     return [k, avail ? (ns ? nsTag(e) : estStr(e)) : '—', avail ? estCls(e) : '',
       (avail && e && e.se != null && !ns) ? '<div class="vsub ci">'+ciStr(e).replace(/^ /,'')+'</div>' : '', true];
   };
+
+  if(has('#benchHeadlineWrap')){
+    if(benchChoices.length){
+      $('#benchHeadlineWrap').style.display = 'block';
+      $('#benchHeadlinePick').innerHTML = benchChoices
+        .map(x => '<option value="'+esc(x.b.name)+'"'+(x.b.name===benchAggName?' selected':'')+'>'+esc(x.b.name)+'</option>').join('');
+      const benchCards = [
+        estCard('Benchmark ceiling change', benchAgg && benchAgg.ceiling, true),
+        estCard('Benchmark typical change', benchAgg && benchAgg.typical, true),
+        estCard('Benchmark floor change', benchAgg && benchAgg.floor, true)
+      ];
+      $('#benchHeadlineCards').innerHTML = benchCards.map(cardHtml).join('');
+      $('#benchHeadlineNote').textContent = benchAgg
+        ? benchAgg.scenariosPlayed + ' scenario' + (benchAgg.scenariosPlayed===1?'':'s') + ', ' + benchAgg.n.toLocaleString() + ' runs matched'
+        : '';
+    } else {
+      $('#benchHeadlineWrap').style.display = 'none';
+    }
+  }
+
+  // CALCULATIONS-V4 §10.3: phrasing is deliberately "sits in the Nth
+  // percentile of the null distribution", never "improved Y by X%" - see the
+  // big comment above computeAttribution() for why. n_comparisons and the
+  // N-of-1 pointer are always shown alongside any candidates, not just on
+  // hover, since a ranked list with neither looks far more certain than it is.
+  if(has('#attribWrap')){
+    if(attrib){
+      $('#attribWrap').style.display = 'block';
+      $('#attribNote').textContent = attrib.candidates.length
+        ? attrib.candidates.length + ' of ' + attrib.nComparisons + ' scenarios tested clear the smallest worthwhile change'
+        : 'none of ' + attrib.nComparisons + ' scenarios tested clear the smallest worthwhile change';
+      const rows = attrib.candidates.map(c =>
+        '<div class="attribrow"><div class="attribhead"><b>'+esc(c.scen)+'</b> sits in the <b>'+
+        Math.round(c.percentile)+'th percentile</b> of the null distribution</div>'+
+        '<div class="attribsub">'+c.nWeeks+' lagged weeks of data · implied swing between a light and heavy week on this: '+
+        (c.effectPct>=0?'+':'')+c.effectPct.toFixed(1)+'% on '+esc(attrib.benchName)+'</div></div>'
+      ).join('') || '<p class="attribempty">Played enough to test '+attrib.nComparisons+' scenario'+
+        (attrib.nComparisons===1?'':'s')+' against a '+attrib.negControlN+'-scenario null, but none moved '+
+        esc(attrib.benchName)+' by more than noise once lagged and compared to that null.</p>';
+      $('#attribList').innerHTML = rows +
+        '<p class="attribsub" style="margin-top:10px">Ranked against '+attrib.negControlN+' scenarios picked without regard '+
+        'to plausibility, not a p-value — a high percentile is a lead worth testing, not an answer. To actually find out, '+
+        'alternate blocks of a few weeks playing this vs not, and compare (the N-of-1 protocol).</p>';
+    } else {
+      $('#attribWrap').style.display = 'none';
+    }
+  }
+
+  // CALCULATIONS-V4 §6.1: two headlines, always both, separately labelled -
+  // Matched (real baseline data only) above the existing all-cells cards.
+  if(has('#matchedHeadlineWrap')){
+    const matchedCards = [
+      estCard('Ceiling change', matchedPb, true),
+      estCard('Typical change', matchedAvg, true),
+      estCard('Floor change', matchedLow, true)
+    ];
+    $('#matchedHeadlineCards').innerHTML = matchedCards.map(cardHtml).join('');
+    $('#matchedHeadlineNote').textContent = matchedComposition.all
+      ? matchedComposition.matched + ' of ' + matchedComposition.all + ' cells have real data both sides' +
+        (matchedComposition.matched < matchedComposition.all
+          ? ' — the rest lean on a fitted familiarisation baseline (below)' : '')
+      : '';
+  }
 
   const cards = [
     estCard('Ceiling change', overallPb, true),
@@ -1435,8 +1883,8 @@ function render(){
       '<p class="meta" style="margin-bottom:0"><b>level</b> = how that cm performs vs your own typical avg/PB (is this cm good for you?). ' +
       '<b>change</b> = how your scores <i>at that cm</i> moved vs the same cm earlier (are you improving there?). ' +
       'Both ignore the Range/Specific filter so all cms stay comparable.</p></div>';
-    const dcell = d => d ? deltaSpan(d.avgDelta) + (d.early ? ' '+earlyTag(TUNING.EARLY_BASELINE_N) : '') : '<span style="color:var(--ink3)">—</span>';
-    const dcellPb = d => d ? deltaSpan(d.pbDelta) + (d.early ? ' '+earlyTag(TUNING.EARLY_BASELINE_N) : '') : '<span style="color:var(--ink3)">—</span>';
+    const dcell = d => d ? deltaSpan(d.avgDelta) + (d.early ? ' '+earlyTag(TUNING.FAMILIAR_MIN_RUNS) : '') : '<span style="color:var(--ink3)">—</span>';
+    const dcellPb = d => d ? deltaSpan(d.pbDelta) + (d.early ? ' '+earlyTag(TUNING.FAMILIAR_MIN_RUNS) : '') : '<span style="color:var(--ink3)">—</span>';
     if(!cmTablesCollapsed){
       html += '<div class="cmside-by-side">';
       if(sortedRange.length){
@@ -1460,22 +1908,37 @@ function render(){
     $('#cmBreakdownWrap').innerHTML = html;
   } else if(hasCmData){
     $('#cmBreakdownWrap').style.display = '';
-    $('#cmBreakdownWrap').innerHTML = '<p class="note">Not enough runs at any single cm/360 or cm range (need 3+ per scenario) to break down performance by cm yet.</p>';
+    // Say exactly how short the fullest cm/360 is, rather than a fixed "need
+    // 3+" figure that had drifted from the real threshold (CM_LEVEL_MIN_N).
+    const winCmCounts = {};
+    cmAnalysisPool.forEach(r => {
+      if(r.date>=windowStart && r.date<=windowEnd && r.cm360!=null){
+        const b = Math.round(r.cm360);
+        winCmCounts[b] = (winCmCounts[b]||0) + 1;
+      }
+    });
+    const fullestCm = Object.values(winCmCounts).reduce((a,b) => Math.max(a,b), 0);
+    const stillNeed = Math.max(1, TUNING.CM_LEVEL_MIN_N - fullestCm);
+    $('#cmBreakdownWrap').innerHTML = '<p class="note">Not enough runs at any single cm/360 to break down performance by cm yet' +
+      (fullestCm ? ' — your fullest cm/360 in this window has ' + fullestCm + ' run' + (fullestCm===1?'':'s') : '') +
+      '. Need ' + stillNeed + ' more run' + (stillNeed===1?'':'s') + ' at one cm/360 to show a comparison with some accuracy; ' +
+      'for the most accurate measurement, cms in comparison need ' + TUNING.CM_LEVEL_MIN_N + '+ runs each over the ' +
+      spanDays + '-day window you\'re viewing.</p>';
   } else {
     $('#cmBreakdownWrap').style.display = 'none';
   }
 
   const colorByCm = hasCmData;
   const runQ = ($('#runSearch').value || '').trim().toLowerCase();
-  const matched = runQ ? rows.filter(r => r.scen.toLowerCase().includes(runQ)) : rows;
+  const matched = runQ ? displayRows.filter(r => r.scen.toLowerCase().includes(runQ)) : displayRows;
   // Each scenario card draws an SVG chart, so rendering hundreds at once is the
   // expensive part - page them instead.
   const limit = listShowAll ? matched.length : Math.min(listLimit, matched.length);
   const shownRows = matched.slice(0, limit);
   if(has('#runSearchNote')){
     $('#runSearchNote').textContent = runQ
-      ? (matched.length.toLocaleString() + ' of ' + rows.length.toLocaleString() + ' match "' + runQ + '" · showing ' + shownRows.length)
-      : (rows.length.toLocaleString() + ' scenarios · showing ' + shownRows.length);
+      ? (matched.length.toLocaleString() + ' of ' + displayRows.length.toLocaleString() + ' match "' + runQ + '" · showing ' + shownRows.length)
+      : (displayRows.length.toLocaleString() + ' scenarios · showing ' + shownRows.length);
   }
   // Pinning a card to one cm re-runs the same machinery on just that cm's runs
   // rather than patching the numbers after the fact. The percentages, their
@@ -1503,9 +1966,9 @@ function render(){
     // Checked up front so the warning symbol can mention them: a card quietly
     // showing two dashes and no warning reads as a broken app.
     const missingCmp = [
-      ['Ceiling (p90)', 'ceiling', TUNING.CEILING_MIN_N],
-      ['Typical (trimmed)', 'typical', TUNING.TYPICAL_MIN_N],
-      ['Floor (p10)', 'floor', TUNING.FLOOR_MIN_N]
+      ['Ceiling (p90)', 'ceiling', TUNING.CEILING_MIN_SESS],
+      ['Typical (trimmed)', 'typical', TUNING.TYPICAL_MIN_SESS],
+      ['Floor (p10)', 'floor', TUNING.FLOOR_MIN_SESS]
     ].filter(h => { const e = v[h[1]]; return !e || e.pct == null; })
      .map(h => ({label: h[0], key: h[1], why: cmpWhy(v, h[1], h[2])}));
     const whyFor = key => { const m = missingCmp.find(x => x.key === key); return m ? m.why : null; };
@@ -1513,7 +1976,7 @@ function render(){
       const why = whyFor(key);
       return '<tr><td>'+label+'</td><td>'+
         (value==null
-          ? '<span class="nodata" title="'+esc('Withheld until there are '+minN+' runs: below that this figure moves with the sample size rather than with your play.')+'">n&lt;'+minN+'</span>'
+          ? '<span class="nodata" title="'+esc('Withheld until there are '+minN+' sessions: below that this figure moves with the sample size rather than with your play.')+'">s&lt;'+minN+'</span>'
           : fmt(value))+'</td>'+
         '<td>'+(why ? '<span class="nocmp" title="'+esc(label+' \u2014 '+why)+'">\u2014</span>' : estSpan(est))+'</td></tr>';
     };
@@ -1562,6 +2025,14 @@ function render(){
     const multiCm = new Set((r.rsAll || r.rs).filter(x => x.cm360 != null)
                                              .map(x => Math.round(x.cm360))).size > 1;
     const cmOpen = cmPanelOpen.has(key);
+    // pb_surprise (CALCULATIONS-V4 §4.1) - never a %, since it isn't one; a
+    // signed sigma distance from what n runs of pure chance alone would
+    // produce is the whole point of not treating a record as a measurement.
+    const surprise = pbSurprise(v.st.sorted);
+    const surpriseCell = surprise == null
+      ? '<span style="color:var(--ink3)">not a measurement</span>'
+      : '<span style="color:var(--ink3)" title="How far your actual best sits from the maximum an unchanging player would be expected to reach after '+v.st.n+' runs, in standard deviations of your own score spread here. Near zero: your PB is what n runs of pure chance alone would produce — no skill signal needed to explain it. Still not a %, and still not proof of a real change: any one sample’s maximum can land above or below its own expectation.">'+
+        (surprise>=0?'+':'')+surprise.toFixed(1)+'σ vs pure-chance expected max</span>';
     // Every card renders chart-left, metrics-right at up to 1920px (.scen-full)
     // - it used to be behind a per-card "Full width" toggle that was being
     // clicked every time anyway, same story as .scen-expanded below it.
@@ -1576,23 +2047,28 @@ function render(){
       (v.cells.length>1 ? ' · '+v.cells.length+' cm cells' : '')+pinNote+'</p>'+
       '<div class="scenbody"><div class="scennum">'+
       '<table><tr><th>metric</th><th>value</th><th>vs baseline (95% CI)</th></tr>'+
-      '<tr><td>PB <span class="recordtag">record</span></td><td>'+fmt(v.st.record)+pbCmTag(v.rs)+'</td><td><span style="color:var(--ink3)">not a measurement</span></td></tr>'+
-      row('Ceiling (p90)', v.st.ceiling, TUNING.CEILING_MIN_N, v.ceiling, 'ceiling')+
-      row('Typical (trimmed)', v.st.typical, TUNING.TYPICAL_MIN_N, v.typical, 'typical')+
-      row('Floor (p10)', v.st.floor, TUNING.FLOOR_MIN_N, v.floor, 'floor')+
+      '<tr><td>PB <span class="recordtag">record</span></td><td>'+fmt(v.st.record)+pbCmTag(v.rs)+'</td><td>'+surpriseCell+'</td></tr>'+
+      row('Ceiling (p90)', v.st.ceiling, TUNING.CEILING_MIN_SESS, v.ceiling, 'ceiling')+
+      row('Typical (trimmed)', v.st.typical, TUNING.TYPICAL_MIN_SESS, v.typical, 'typical')+
+      row('Floor (p10)', v.st.floor, TUNING.FLOOR_MIN_SESS, v.floor, 'floor')+
       '</table>'+
       staleNote(v, windowEnd) +
       '</div><div class="scenchart">'+
       // The chart is drawn from the pinned runs, but the chips are built from
       // every run the scenario has - filter to 45cm and the other chips have to
       // still be there, or there is no way back out except undoing the filter.
-      spark(v.rsAll || v.rs, colorByCm, r.rsAll || r.rs, pinCm)+
+      spark(v.rsAll || v.rs, colorByCm, r.rsAll || r.rs, pinCm, tradingLines)+
       '</div>'+
       '<div class="legend"><span><i style="background:var(--best)"></i>PB (step — it is a ratchet, not a slope)</span>'+
       '<span><i style="background:var(--med)"></i>rolling median</span>'+
       '<span><i style="background:var(--low)"></i>rolling bottom 10%</span>'+
       '<span><i style="background:var(--ink3)"></i>individual runs</span>'+
-      '<span><i class="bandkey"></i>±1σ noise floor</span></div>'+
+      '<span><i class="bandkey"></i>±1σ noise floor</span>'+
+      (tradingLines ?
+        '<span><i style="background:var(--tophi)"></i>topmost trend (first→latest top, projected)</span>'+
+        '<span><i style="background:var(--lowlo)"></i>lowest trend (first→latest low, projected)</span>'+
+        '<span><i style="background:var(--raw)"></i>run-to-run line</span>' : '')+
+      '</div>'+
       '</div>'+
       // Deliberately the scenario's WHOLE history rather than the current
       // window: comparing sensitivities needs every run of each one it can get,
@@ -1644,10 +2120,12 @@ function scenCaveats(v, ctx){
     out.push({
       t: 'Some percentages use a stand-in baseline',
       b: 'There is no separate earlier period to compare against yet, so the rows tagged ' +
-         '<span class="earlytag">early</span> are measured against your <b>first ' +
-         TUNING.EARLY_BASELINE_N + ' runs ever</b> of this scenario instead. Treat those as a ' +
-         'rough starting point rather than a measured change — they are given no confidence ' +
-         'interval on purpose. Play it across a few separate days and they become real comparisons.'
+         '<span class="earlytag">early</span> are measured against a <b>familiarisation curve ' +
+         'fitted to your run history</b> (needs at least ' + TUNING.FAMILIAR_MIN_RUNS + ' runs) ' +
+         'instead — its estimated plateau, not your raw early scores, which run too low to use ' +
+         'as a fair baseline. Treat those rows as a rough starting point rather than a measured ' +
+         'change — they are given no confidence interval on purpose. Play it more and they become ' +
+         'real comparisons.'
     });
   }
   const missing = ctx.missingCmp || [];
@@ -1708,12 +2186,12 @@ function cmpWhy(v, key, minN){
         'so there is no like-for-like comparison to make.'
       : 'There are no runs in the period before this window, so there is nothing to compare against yet.') + split;
   }
-  const w = Math.max(...paired.map(c => c.w.n));
-  const b = Math.max(...paired.map(c => c.b.n));
+  const w = Math.max(...paired.map(c => c.wSess.n));
+  const b = Math.max(...paired.map(c => c.bSess.n));
   // No label in here: both callers already name the row, and printing it twice
-  // read as "Ceiling (p90) - Ceiling (p90) needs at least 15 runs...".
-  return 'Needs at least ' + minN + ' runs on each side of the comparison. Your fullest ' +
-    'sensitivity band has ' + w + ' in this window and ' + b + ' in the period before it.' + split;
+  // read as "Ceiling (p90) - Ceiling (p90) needs at least 8 sessions...".
+  return 'Needs at least ' + minN + ' sessions on each side of the comparison (a session is one sitting, ' +
+    'not one run). Your fullest sensitivity band has ' + w + ' in this window and ' + b + ' in the period before it.' + split;
 }
 
 function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -2733,12 +3211,21 @@ const SIDETAB_DOCS = {
       '<h3>Why not personal bests</h3>' +
       '<p>A PB is the maximum of <i>n</i> samples, and the expected maximum rises with <i>n</i> even ' +
       'when nothing about you has changed. Play more, PB more, learn nothing. So the record is shown ' +
-      'and never turned into a percentage.</p>' +
+      'and never turned into a percentage — instead its row shows how many standard deviations it ' +
+      'sits from the maximum an unchanging player would be expected to reach from that many runs ' +
+      'alone, using an exact table rather than the usual approximation, which is documented as ' +
+      'unreliable at session-sized samples.</p>' +
       '<h3>The three numbers</h3>' +
       '<p><b>Ceiling</b> is the 90th percentile of your scores — a good day, not a fluke. ' +
       '<b>Typical</b> is a 10% trimmed mean: the best and worst tenth are dropped so one disaster or ' +
       'one miracle cannot move it. <b>Floor</b> is the 10th percentile — your bad days. The floor is ' +
       'the one that matters most: a rising floor is skill you own, a rising ceiling can be luck.</p>' +
+      '<h3>Why sessions, not runs</h3>' +
+      '<p>All three are computed on one value per play session (each session’s own trimmed mean), ' +
+      'not on raw runs. Runs inside the same sitting share warm-up state, fatigue and mood, so they are ' +
+      'not independent — treating them as if they were makes every confidence interval look several ' +
+      'times tighter than it actually is. A session needs a handful of runs in it to count, and each ' +
+      'figure is withheld until enough sessions exist.</p>' +
       '<h3>Why a change can be "not significant"</h3>' +
       '<p>Every percentage carries a 95% confidence interval. When that interval spans zero, the ' +
       'app does not print the number at all — it prints <b>within noise</b>, with the actual figure ' +
@@ -3302,6 +3789,318 @@ function rankAchieved(score, ranks){
   return achieved;
 }
 
+// CALCULATIONS-V4 §10.1 step 1: "use the suite's own normalised per-scenario
+// scoring, not raw scores." A suite's scenarios have wildly different raw
+// score scales (90 on a switching scenario, 22000 on a tracking one), so they
+// cannot be averaged directly. Rank thresholds are the suite's own common
+// scale: this maps a raw score onto a continuous "rank index" - 0 at the
+// lowest named rank's threshold, 1 at the next, and so on, linearly
+// interpolated between adjacent thresholds and linearly extrapolated past
+// both ends using the nearest interval's slope (so a score just short of the
+// bottom rank, or above the top one, still gets a value rather than null).
+function rankIndexValue(score, ranks){
+  if(score == null || !ranks || ranks.length < 2) return null;
+  const n = ranks.length;
+  if(score <= ranks[0].t){
+    const slope = ranks[1].t - ranks[0].t;
+    return slope ? (score - ranks[0].t) / slope : 0;
+  }
+  if(score >= ranks[n-1].t){
+    const slope = ranks[n-1].t - ranks[n-2].t;
+    return slope ? (n-1) + (score - ranks[n-1].t) / slope : n-1;
+  }
+  for(let i=0; i<n-1; i++){
+    if(score >= ranks[i].t && score <= ranks[i+1].t){
+      const slope = ranks[i+1].t - ranks[i].t;
+      return slope ? i + (score - ranks[i].t) / slope : i;
+    }
+  }
+  return null;
+}
+
+// Every pool run that lands on one of this suite's scenarios, converted to
+// its rank-index value (step 1). `r.sessId`/`r.date` ride along for steps 2-3.
+function benchmarkNormalizedRuns(b, pool){
+  const rankMap = new Map(b.scenarios.map(sc => [sc.n.trim().toLowerCase(), sc.r]));
+  const out = [];
+  pool.forEach(r => {
+    const ranks = rankMap.get(r.scen.trim().toLowerCase());
+    if(!ranks) return;
+    const v = rankIndexValue(r.score, ranks);
+    if(v == null) return;
+    out.push({date: r.date, scen: r.scen, sessId: r.sessId, v});
+  });
+  return out;
+}
+
+// §10.1 steps 2-3: reduce each scenario's session to one value (trimmed mean
+// of its rank-index runs - same rule sessionValues() uses for a single
+// scenario's raw scores), then average across every scenario played in that
+// session into one suite-level session value. Unweighted by how many
+// scenarios or runs fed a session - §3.1's "session values enter unweighted"
+// applies at the suite level too, not just within a cell.
+function benchmarkSessionValues(normRuns){
+  const byScenSess = new Map();
+  normRuns.forEach(r => {
+    if(r.sessId == null) return;
+    const key = r.scen + '|' + r.sessId;
+    if(!byScenSess.has(key)) byScenSess.set(key, []);
+    byScenSess.get(key).push(r.v);
+  });
+  const bySess = new Map();
+  byScenSess.forEach((vals, key) => {
+    if(vals.length < TUNING.SESSION_MIN_RUNS) return;
+    const sessId = key.slice(key.lastIndexOf('|')+1);
+    const sv = trimmedMean(vals.slice().sort((a,b)=>a-b), TUNING.TRIM_FRACTION);
+    if(!bySess.has(sessId)) bySess.set(sessId, []);
+    bySess.get(sessId).push(sv);
+  });
+  return [...bySess.values()].map(vals => mean(vals));
+}
+
+// §10.1 step 4: "apply §4 estimators, §5 rendering as normal" - once suite
+// runs are reduced to one rank-index session value each, this is exactly the
+// shape computeCells() feeds stats()/changeWithSE() for a single cell, so the
+// same estimators (Harrell-Davis ceiling/floor with n-matching, trimmed-mean
+// typical, noise-gated rendering) apply unchanged. No cm-cluster split here -
+// the suite aggregate is deliberately basket-level, not cell-level; the
+// caller's `pool` already carries whatever cm filter is active app-wide.
+function computeBenchmarkAggregate(normRuns, windowStart, windowEnd, cmpMode){
+  if(!normRuns.length) return null;
+  const winLen = windowEnd.getTime() - windowStart.getTime();
+  const baseStart = new Date(windowStart.getTime() - winLen);
+  const mid = new Date(windowStart.getTime() + winLen/2);
+  const winRuns = [], baseRuns = [];
+  normRuns.forEach(r => {
+    const t = r.date;
+    if(cmpMode === 'prev'){
+      if(t >= windowStart && t <= windowEnd) winRuns.push(r);
+      else if(t >= baseStart && t < windowStart) baseRuns.push(r);
+    } else {
+      if(t >= mid && t <= windowEnd) winRuns.push(r);
+      else if(t >= windowStart && t < mid) baseRuns.push(r);
+    }
+  });
+  const wSess = stats(benchmarkSessionValues(winRuns), SESS_THRESH, true);
+  const bSess = stats(benchmarkSessionValues(baseRuns), SESS_THRESH, true);
+  const chronological = [...normRuns].sort((a,b)=>a.date-b.date).map(r=>r.v);
+  const fallback = earlyBaseline(chronological);
+  return {
+    n: normRuns.length,
+    scenariosPlayed: new Set(normRuns.map(r=>r.scen)).size,
+    wSessN: wSess.n, bSessN: bSess.n,
+    ceiling: changeWithSE(wSess, bSess, 'ceiling', fallback),
+    typical: changeWithSE(wSess, bSess, 'typical', fallback),
+    floor:   changeWithSE(wSess, bSess, 'floor', fallback)
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Attribution with negative controls (CALCULATIONS-V4 §10.3)
+// "Did playing X help Y?" is causal inference from observational data.
+// Sessions with more of X are also sessions where you had time, were rested,
+// were motivated, and played five other things — and reverse causation is
+// live too (people play a scenario more once they're already improving on
+// it). Every guard below exists to keep the feature honest about that, not
+// to make it look more certain than it is:
+//   - lagged, never contemporaneous: this week's dose against NEXT week's
+//     change, never the same week's — a same-week read just measures "busy
+//     weeks have more of everything."
+//   - dose-response, not a single contrast: a Spearman rank correlation over
+//     every lagged week pair, so a single lucky split can't manufacture it.
+//     Spearman rather than a fixed bucket count because most scenarios don't
+//     have enough weeks played to fill 3+ buckets with anything - a rank
+//     correlation uses every week it has instead of throwing most away.
+//   - negative controls, mandatory: the identical test run against
+//     NEG_CONTROL_N scenarios picked without any regard to plausibility (see
+//     pickNegControls), and every candidate is reported as where it falls
+//     against that null, never on its own.
+//   - no significance claims: n_comparisons is reported, nothing is ranked
+//     by a p-value, and a candidate isn't even listed unless its implied
+//     effect clears the app's existing smallest-worthwhile-change bar
+//     (TUNING.TARGET_EFFECT — the same one requiredN()/powered already use,
+//     not a new threshold invented for this one feature).
+// A scenario that is itself part of the target benchmark is excluded from
+// candidacy — testing whether playing a benchmark scenario moved that same
+// benchmark isn't attribution, it's the definition of practice.
+// ---------------------------------------------------------------------------
+
+function weekKey(d){
+  const day = (d.getDay() + 6) % 7; // Monday = 0, so week boundaries don't drift with locale
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day).getTime();
+}
+
+// §10.1 steps 2-3's own session-then-scenario reduction (benchmarkSessionValues),
+// kept split by the calendar week each session's first run falls in instead of
+// collapsed to one number — this is the outcome series (Y) the dose-response
+// test regresses against.
+function weeklyOutcome(normRuns){
+  // Keyed by scen+'|'+sessId (a session can hold several scenarios) but the
+  // value carries sessId back out as its native number — string-slicing it
+  // back out of the key would silently mismatch sessDate's numeric keys below.
+  const byScenSess = new Map(), sessDate = new Map();
+  normRuns.forEach(r => {
+    if(r.sessId == null) return;
+    const key = r.scen + '|' + r.sessId;
+    if(!byScenSess.has(key)) byScenSess.set(key, {sessId: r.sessId, vals: []});
+    byScenSess.get(key).vals.push(r.v);
+    if(!sessDate.has(r.sessId) || r.date < sessDate.get(r.sessId)) sessDate.set(r.sessId, r.date);
+  });
+  const bySess = new Map();
+  byScenSess.forEach(({sessId, vals}) => {
+    if(vals.length < TUNING.SESSION_MIN_RUNS) return;
+    const sv = trimmedMean(vals.slice().sort((a,b)=>a-b), TUNING.TRIM_FRACTION);
+    if(!bySess.has(sessId)) bySess.set(sessId, []);
+    bySess.get(sessId).push(sv);
+  });
+  const byWeek = new Map();
+  bySess.forEach((vals, sessId) => {
+    const wk = weekKey(sessDate.get(sessId));
+    if(!byWeek.has(wk)) byWeek.set(wk, []);
+    byWeek.get(wk).push(mean(vals));
+  });
+  const out = new Map();
+  byWeek.forEach((vals, wk) => out.set(wk, mean(vals)));
+  return out;
+}
+
+// Dose = a scenario's share of that week's total play time (sum of r.dur),
+// not raw minutes — a week where X was most of a light week and a week
+// where X was most of a heavy week both read as "high dose". That's what
+// "controlling total volume" comes down to without a real regression
+// library on hand: the share is close to orthogonal to how much you played
+// overall that week, which a raw-minutes dose would not be.
+function weeklyDose(scen, runs){
+  const tot = new Map(), scenT = new Map();
+  runs.forEach(r => {
+    const wk = weekKey(r.date), dur = r.dur || 0;
+    tot.set(wk, (tot.get(wk)||0) + dur);
+    if(r.scen === scen) scenT.set(wk, (scenT.get(wk)||0) + dur);
+  });
+  const out = new Map();
+  tot.forEach((t, wk) => { if(t > 0) out.set(wk, (scenT.get(wk)||0) / t); });
+  return out;
+}
+
+function rankArray(a){
+  const idx = a.map((_,i)=>i).sort((i,j)=>a[i]-a[j]);
+  const ranks = new Array(a.length);
+  let i = 0;
+  while(i < idx.length){
+    let j = i;
+    while(j+1 < idx.length && a[idx[j+1]] === a[idx[i]]) j++;
+    const avgRank = (i+j)/2 + 1;
+    for(let k=i; k<=j; k++) ranks[idx[k]] = avgRank;
+    i = j+1;
+  }
+  return ranks;
+}
+function pearson(a, b){
+  const n = a.length;
+  if(n < 2) return null;
+  const ma = mean(a), mb = mean(b);
+  let num=0, da=0, db=0;
+  for(let i=0;i<n;i++){ const xa=a[i]-ma, xb=b[i]-mb; num+=xa*xb; da+=xa*xa; db+=xb*xb; }
+  return (da===0 || db===0) ? null : num/Math.sqrt(da*db);
+}
+function spearman(a, b){ return (a.length===b.length && a.length>=2) ? pearson(rankArray(a), rankArray(b)) : null; }
+function olsSlope(xs, ys){
+  const n = xs.length, mx = mean(xs), my = mean(ys);
+  let num=0, den=0;
+  for(let i=0;i<n;i++){ num += (xs[i]-mx)*(ys[i]-my); den += (xs[i]-mx)**2; }
+  return den ? num/den : null;
+}
+
+const WEEK_MS = 7*864e5;
+
+// Builds the lagged (dose in week t) -> (outcome change t -> t+1) pairs for
+// one scenario against one outcome series, and reduces them to the single
+// statistic used both for ranking candidates and for the negative-control
+// null: the Spearman correlation between dose and next-week change (itself a
+// monotonicity/dose-response test), plus an implied effect size for the SWC
+// gate — the predicted swing in outcome between a light and a heavy week on
+// this scenario, expressed as a % of the average outcome level the same way
+// every other change figure in this app is (changeWithSE's own convention).
+function doseResponseTest(doseByWeek, outcomeByWeek){
+  const doses = [], deltas = [];
+  outcomeByWeek.forEach((yNext, wk) => {
+    const wkPrev = wk - WEEK_MS;
+    const yPrev = outcomeByWeek.get(wkPrev);
+    const dose = doseByWeek.get(wkPrev);
+    if(yPrev == null || dose == null) return;
+    doses.push(dose);
+    deltas.push(yNext - yPrev);
+  });
+  if(doses.length < TUNING.ATTRIB_MIN_WEEKS) return null;
+  const corr = spearman(doses, deltas);
+  if(corr == null) return null;
+  const slope = olsSlope(doses, deltas);
+  const sortedDoses = doses.slice().sort((a,b)=>a-b);
+  const iqr = quantileAt(sortedDoses, 0.75) - quantileAt(sortedDoses, 0.25);
+  const meanY = mean([...outcomeByWeek.values()]);
+  const effectPct = (slope != null && meanY > 0) ? slope * iqr / meanY * 100 : null;
+  return {corr, nWeeks: doses.length, effectPct};
+}
+
+// "10 scenarios with no plausible relationship" has no algorithmic
+// plausibility test to run, so plausibility is deliberately not the
+// selection criterion here — an evenly-spaced sample across the alphabet is
+// arbitrary with respect to the results being tested, which is the property
+// that actually matters for a null: it wasn't picked because it looked
+// related (or unrelated). One shared pool is picked per computation (not
+// re-picked per candidate), so every candidate is read against the same
+// reference distribution.
+function pickNegControls(scens, n){
+  const pool = scens.slice().sort();
+  if(pool.length <= n) return pool;
+  const stride = pool.length / n;
+  const out = [];
+  for(let i=0; i<n; i++) out.push(pool[Math.min(pool.length-1, Math.floor(i*stride))]);
+  return [...new Set(out)];
+}
+
+// Ties the pieces above together into the ranked candidate list §10.3 wants:
+// every eligible scenario tested, a shared negative-control null built from
+// an arbitrary slice of that same eligible set, each candidate reported as a
+// percentile against that null, and nothing listed unless it also clears the
+// SWC. `bench` is the same benchmark object driving the headline aggregate
+// (§10.1) — Y is that benchmark's weekly outcome level, so "moving it" means
+// moving the app's own primary metric, not an arbitrary pick.
+function computeAttribution(bench, normRuns, allRuns){
+  if(!bench || !normRuns.length) return null;
+  const outcomeByWeek = weeklyOutcome(normRuns);
+  if(outcomeByWeek.size < TUNING.ATTRIB_MIN_WEEKS + 1) return null;
+
+  const benchScens = new Set(bench.scenarios.map(sc => sc.n.trim().toLowerCase()));
+  const scenSeen = new Set();
+  allRuns.forEach(r => { if(!benchScens.has(r.scen.trim().toLowerCase())) scenSeen.add(r.scen); });
+
+  const results = new Map();
+  scenSeen.forEach(scen => {
+    const test = doseResponseTest(weeklyDose(scen, allRuns), outcomeByWeek);
+    if(test) results.set(scen, test);
+  });
+  const tested = [...results.keys()];
+  if(!tested.length) return null;
+
+  const negControls = pickNegControls(tested, TUNING.NEG_CONTROL_N);
+  const nullCorrs = negControls.map(s => results.get(s).corr);
+  const percentileOf = (scen, r) => {
+    const pool = nullCorrs.filter((_, i) => negControls[i] !== scen);
+    if(!pool.length) return null;
+    return pool.filter(v => v <= r).length / pool.length * 100;
+  };
+
+  const candidates = tested.map(scen => {
+    const t = results.get(scen);
+    return {scen, effectPct: t.effectPct, nWeeks: t.nWeeks, percentile: percentileOf(scen, t.corr)};
+  })
+  .filter(c => c.effectPct != null && c.percentile != null && Math.abs(c.effectPct) > TUNING.TARGET_EFFECT)
+  .sort((a,b) => b.percentile - a.percentile || Math.abs(b.effectPct) - Math.abs(a.effectPct));
+
+  return {benchName: bench.name, nComparisons: tested.length, negControlN: negControls.length, candidates: candidates.slice(0, 8)};
+}
+
 function canonicalRankOrder(bench){
   let best = [];
   bench.scenarios.forEach(sc => { if(sc.r.length > best.length) best = sc.r.map(r=>r.n); });
@@ -3578,7 +4377,7 @@ document.addEventListener('mousemove', onSparkMove, {passive:true});
 document.addEventListener('mouseleave', hideSparkTip);
 window.addEventListener('scroll', hideSparkTip, {passive:true, capture:true});
 
-function spark(rsAll, byCm, legendRs, pinnedCm){
+function spark(rsAll, byCm, legendRs, pinnedCm, trading){
   // 2:1 plot area. Slope is judged most accurately when the average segment
   // sits near 45 degrees; wide-and-short charts flatten trends (Cleveland).
   const H = 340, W = Math.round(H * TUNING.CHART_ASPECT), P = 10, PL = 46;
@@ -3663,12 +4462,48 @@ function spark(rsAll, byCm, legendRs, pinnedCm){
       'stroke="var(--low)" stroke-width="1.2" opacity=".65"/>';
   }).join('');
 
+  // Trading lines (off by default, one toggle): a trader's-eye read laid over
+  // the chart's own smoothed stats. Two trendlines run from your first run's
+  // score (the only "top"/"low" you had at the start) to the run that set
+  // your current all-time best/worst - wherever that landed - then project
+  // across the FULL chart width rather than stopping at those two points, the
+  // way a trendline through swing highs/lows gets extended on a price chart.
+  // If the record was set on run 1 and never touched again, both anchors are
+  // the same point and the line is flat, which is itself the honest read: it
+  // has stood the whole time. The third line is no model at all, just every
+  // run connected in order, for when the smoothing above is hiding the shape
+  // of the noise itself.
+  let tradingEls = '';
+  if(trading && rs.length > 1){
+    const xLo = PL, xHi = W-P;
+    const angleOf = m => Math.atan2(-m, 1) * 180 / Math.PI;
+    const trendLine = (i1, v1, i2, v2, color) => {
+      const x1 = x(i1), y1 = y(v1), x2 = x(i2), y2 = y(v2);
+      const m = Math.abs(x2 - x1) < 1e-6 ? 0 : (y2 - y1) / (x2 - x1);
+      const b = y1 - m * x1;
+      const yLo = m*xLo + b, yHi = m*xHi + b;
+      const angle = angleOf(m);
+      return '<path d="M'+xLo.toFixed(1)+','+yLo.toFixed(1)+'L'+xHi.toFixed(1)+','+yHi.toFixed(1)+
+        '" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/>'+
+        '<text x="'+(xHi-4).toFixed(1)+'" y="'+(yHi-6).toFixed(1)+'" text-anchor="end" font-size="11" fill="'+color+'">'+
+        (angle>0?'+':'')+angle.toFixed(1)+'°</text>';
+    };
+    const maxScore = Math.max(...sc), minScore = Math.min(...sc);
+    const topIdx = sc.indexOf(maxScore), lowIdx = sc.indexOf(minScore);
+    const rawPts = sc.map((v,i) => (i?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1)).join('');
+    tradingEls =
+      '<path d="'+rawPts+'" fill="none" stroke="var(--raw)" stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>'+
+      trendLine(0, sc[0], topIdx, maxScore, 'var(--tophi)') +
+      trendLine(0, sc[0], lowIdx, minScore, 'var(--lowlo)');
+  }
+
   const sparkId = sparkRegister({w:W, h:H, pts:hover});
   return '<svg id="'+sparkId+'" class="spark" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Score over time with individual runs, a one-sigma noise band, PB steps, rolling median and rolling bottom ten percent" style="color:var(--ink3)">'+
     ticks + band + dots + zeroMarks +
     '<path d="'+pb+'" fill="none" stroke="var(--best)" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="miter" vector-effect="non-scaling-stroke"/>'+
     '<path d="'+low+'" fill="none" stroke="var(--low)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>'+
     '<path d="'+med+'" fill="none" stroke="var(--med)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>'+
+    tradingEls +
     // Last, so the ring round the run you are reading sits on top of everything.
     '<circle class="sparkhl" r="5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0"/></svg>'+
     scaleNote(s, zeros.length) +
@@ -3821,6 +4656,7 @@ if(has('#brkEnable')){
 
 $('#exWarmup').addEventListener('change', () => { excludeWarmup = $('#exWarmup').checked; render(); });
 $('#exRefam').addEventListener('change', () => { excludeRefam = $('#exRefam').checked; render(); });
+if(has('#tradingLines')) $('#tradingLines').addEventListener('change', () => { tradingLines = $('#tradingLines').checked; render(); });
 $('#sortby2').addEventListener('change', () => { $('#sortby').value = $('#sortby2').value; render(); });
 $('#cmClear').addEventListener('click', () => {
   setCmTab('off');
@@ -3841,6 +4677,12 @@ $('#cmSectionToggle').addEventListener('click', () => {
 $('#pick').addEventListener('change', e => ingest(e.target.files));
 $('#pickf').addEventListener('change', e => ingest(e.target.files));
 ['win','minruns','sortby','cmp','cmMin','cmMax','winFrom','winTo'].forEach(id => $('#'+id).addEventListener('change', render));
+if(has('#benchHeadlinePick')){
+  $('#benchHeadlinePick').addEventListener('change', e => {
+    lsSet('kva_headline_bench', e.target.value);
+    render();
+  });
+}
 if(has('#runSearch')){
   let _t = null;
   $('#runSearch').addEventListener('input', () => {
@@ -4232,6 +5074,53 @@ function selfTest(){
   t('quantileAt p100', quantileAt(A, 1), 10);
   t('quantileAt empty', quantileAt([], 0.5), null);
 
+  // betaInc: I_x(1,1) is just the uniform CDF, x itself; and the reflection
+  // identity I_x(a,b) = 1 - I_(1-x)(b,a) holds for any a,b.
+  t('betaInc(x,1,1) = x', betaInc(0.37, 1, 1), 0.37);
+  t('betaInc reflection identity', betaInc(0.3, 2, 5) + betaInc(0.7, 5, 2), 1);
+  // hdQuantile weights always sum to 1 (telescoping I_beta from 0 to 1), so a
+  // constant array's weighted average is exactly that constant regardless of
+  // p or n - a hand-derivable check that doesn't depend on the beta-function
+  // internals being exactly right, just complete.
+  t('hdQuantile of a constant is that constant', hdQuantile(FLAT, 0.90), 100);
+  t('hdQuantile of a constant is that constant (p10)', hdQuantile(FLAT, 0.10), 100);
+  // A symmetric sample with the median's symmetric weights averages to the mean.
+  t('hdQuantile p50 of a symmetric sample is the mean', hdQuantile(A, 0.50), 5.5, 1e-9);
+  t('hdQuantile p90 lies between the traditional p90 and the max',
+    hdQuantile(A, 0.90) >= quantileAt(A, 0.90) - 1e-9 && hdQuantile(A, 0.90) <= 10, true);
+  // Jackknife SE of a constant array is 0 - every leave-one-out draw is identical.
+  t('hdQuantileSE of a constant is 0', hdQuantileSE(FLAT, 0.90), 0);
+  t('hdQuantileSE needs at least 2 sessions', hdQuantileSE([5], 0.90), null);
+
+  // expected-max table (CALCULATIONS-V4 §4.1) - checked against closed-form/
+  // published values, not against itself.
+  t('expectedMaxStd(1) = 0 (a single draw has no order-statistic bias)', expectedMaxStd(1), 0);
+  t('expectedMaxStd(2) = 1/sqrt(pi), closed form', expectedMaxStd(2), 1/Math.sqrt(Math.PI), 1e-5);
+  t('expectedMaxStd(10) matches the published table value', expectedMaxStd(10), 1.538750, 1e-4);
+  t('expectedMaxStd is monotonically increasing in n', expectedMaxStd(50) < expectedMaxStd(100), true);
+  t('expectedMaxStd falls back to the asymptotic beyond the table and stays increasing',
+    expectedMaxStd(301) > expectedMaxStd(300) && isFinite(expectedMaxStd(301)), true);
+  // pbSurprise: gated the same way CV is, and undefined for a constant sample
+  // (sigma = 0). The A-array case is worked by hand: mean 5.5, sd sqrt(8.25),
+  // record 10, expectedMaxStd(10) 1.538753.
+  t('pbSurprise below HARD_FLOOR_N is withheld', pbSurprise(A.slice(0,5)), null);
+  t('pbSurprise of a constant sample is withheld (sigma=0)', pbSurprise(FLAT), null);
+  t('pbSurprise(1..10) matches the hand-worked value', pbSurprise(A), 0.027946, 1e-4);
+
+  // n-matching (CALCULATIONS-V4 §4.3): below N_MATCH_RATIO it must fall
+  // through to plain HD on each side unchanged (deterministic, so exact).
+  const B8 = A.slice(0, 8);
+  const belowRatio = nMatchedHD(A, B8, 0.5);
+  t('nMatchedHD below ratio: window is plain HD', belowRatio.wQ, hdQuantile(A, 0.5));
+  t('nMatchedHD below ratio: baseline is plain HD', belowRatio.bQ, hdQuantile(B8, 0.5));
+  // Above the ratio, the untouched (smaller) side is still plain HD/jackknife;
+  // the subsampled (larger) side is randomised, so only check it stays in range.
+  const W20 = Array.from({length:20}, (_,i) => i+1), B5 = [1,2,3,4,5];
+  const aboveRatio = nMatchedHD(W20, B5, 0.5);
+  t('nMatchedHD above ratio: untouched side is plain HD', aboveRatio.bQ, hdQuantile(B5, 0.5));
+  t('nMatchedHD above ratio: subsampled side stays in range',
+    aboveRatio.wQ >= 1 && aboveRatio.wQ <= 20 && isFinite(aboveRatio.wSE) && aboveRatio.wSE >= 0, true);
+
   // trimSlice cuts floor(n*frac) from EACH end, and does nothing below TRIM_MIN_N
   t('trimSlice keeps 8 of 10', trimSlice(A, 0.10).length, 8);
   t('trimSlice drops the ends', trimSlice(A, 0.10)[0], 2);
@@ -4258,6 +5147,12 @@ function selfTest(){
   t('stats floor withheld under FLOOR_MIN_N', st.floor, null);
   t('stats typical shown at TYPICAL_MIN_N', st.typical, 5.5);
   t('stats cv', st.cv, Math.sqrt(8.25)/5.5*100, 1e-9);
+
+  // hd=true switches Ceiling/Floor to Harrell-Davis; default stays traditional.
+  const stHd = stats(A, SESS_THRESH, true);
+  t('stats(hd) ceiling uses hdQuantile', stHd.ceiling, hdQuantile(A, TUNING.CEILING_Q));
+  t('stats(hd) floor uses hdQuantile', stHd.floor, hdQuantile(A, TUNING.FLOOR_Q));
+  t('stats() without hd still uses quantileAt', stats(A, SESS_THRESH).ceiling, quantileAt(A, TUNING.CEILING_Q));
 
   // chartScale: mu +- max(K*sigma, MIN_SPAN_PCT*mu), expanded to hold every point
   const cs = chartScale(A);
@@ -4401,10 +5296,10 @@ function selfTest(){
   // ---- why a comparison is missing ---------------------------------------
   // The reason has to distinguish "not enough runs" from "no earlier period at
   // all" - they need completely different things from the player.
-  const cell = (wn, bn) => ({w:{n:wn}, b:{n:bn}});
+  const cell = (wn, bn) => ({w:{n:wn}, b:{n:bn}, wSess:{n:wn}, bSess:{n:bn}});
   const V1 = {st:{n:16}, cells:[cell(10,16), cell(0,1), cell(6,0), cell(0,0)]};
   const w1 = cmpWhy(V1, 'ceiling', 15);
-  t('a thin comparison names the shortfall', /at least 15 runs/.test(w1), true);
+  t('a thin comparison names the shortfall', /at least 15 sessions/.test(w1), true);
   t('and counts both sides of the fullest band', /10 in this window and 16/.test(w1), true);
   t('and explains the cm split', /split across 4 sensitivity bands/.test(w1), true);
   t('the reason never repeats the row name', /^Needs/.test(w1), true);
@@ -4442,6 +5337,46 @@ function selfTest(){
   t('the tightest interval sorts first, not the biggest pile of runs', rowsD[0].st.n, 40);
   t('a wide interval still beats no interval', rowsD[1].st.n, 400);
   t('unmeasurable rows fall to the bottom, most runs first', rowsD[3].st.n, 20);
+
+  // ---- rankIndexValue: CALCULATIONS-V4 §10.1 step 1 normalisation ---------
+  const RK = [{n:'cinnabar', t:100}, {n:'vermillion', t:200}, {n:'saffron', t:400}];
+  t('rankIndexValue at exact threshold = its rank index', rankIndexValue(200, RK), 1);
+  t('rankIndexValue at bottom threshold = 0', rankIndexValue(100, RK), 0);
+  t('rankIndexValue interpolates linearly between ranks', rankIndexValue(150, RK), 0.5);
+  t('rankIndexValue interpolates the wider upper interval', rankIndexValue(300, RK), 1.5);
+  t('rankIndexValue extrapolates below the bottom rank', rankIndexValue(50, RK), -0.5);
+  t('rankIndexValue extrapolates above the top rank', rankIndexValue(600, RK), 3);
+  t('rankIndexValue on null score', rankIndexValue(null, RK), null);
+  t('rankIndexValue needs at least 2 ranks', rankIndexValue(150, [{n:'a', t:100}]), null);
+
+  // ---- fitFamiliarisation / earlyBaseline: CALCULATIONS-V4 §8 ------------
+  t('below FAMILIAR_MIN_RUNS, no fit', fitFamiliarisation(new Array(TUNING.FAMILIAR_MIN_RUNS - 1).fill(100)), null);
+  t('below FAMILIAR_MIN_RUNS, no early baseline either', earlyBaseline(new Array(TUNING.FAMILIAR_MIN_RUNS - 1).fill(100)), null);
+  {
+    // Synthetic exponential series with a known A/C/lambda, generated exactly
+    // to spec (score(k) = A - C*exp(-k/lambda)) with k 1-based — the fit
+    // should recover A and C from it essentially exactly (closed-form OLS on
+    // noiseless data), independent of series length once past the gate.
+    const A0 = 850, C0 = 200, lam = TUNING.LAMBDA;
+    const synth = n => Array.from({length: n}, (_, i) => A0 - C0 * Math.exp(-(i+1) / lam));
+    const fit60 = fitFamiliarisation(synth(60));
+    t('fitFamiliarisation recovers A on noiseless data', fit60.level, A0, 1e-6);
+    t('fitFamiliarisation recovers C on noiseless data', fit60.amplitude, C0, 1e-6);
+    t('fitFamiliarisation reports the fixed lambda', fit60.lambda, lam);
+    t('fitFamiliarisation n matches input length', fit60.n, 60);
+    t('60 runs is still in familiarisation (< 3*lambda)', fit60.inFamiliarisation, true);
+
+    const fit210 = fitFamiliarisation(synth(210));
+    t('210 runs clears familiarisation (>= 3*lambda)', fit210.inFamiliarisation, false);
+
+    const eb = earlyBaseline(synth(60));
+    t('earlyBaseline ceiling/typical/floor/avg all collapse to the fitted level', eb.ceiling, A0, 1e-6);
+    t('earlyBaseline typical = fitted level too', eb.typical, A0, 1e-6);
+    t('earlyBaseline floor = fitted level too', eb.floor, A0, 1e-6);
+    t('earlyBaseline avg = fitted level too', eb.avg, A0, 1e-6);
+    t('earlyBaseline exposes n', eb.n, 60);
+  }
+  t('a flat (unimproving) series still fits, amplitude ~0', fitFamiliarisation(new Array(40).fill(500)).amplitude, 0, 1e-6);
 
   const fails = R.filter(r => !r.ok);
   const fmtv = v => (typeof v === 'number' ? (Math.round(v * 1e6) / 1e6) : String(v));

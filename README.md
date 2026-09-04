@@ -1,6 +1,3 @@
-### BUG NOT SHOWING ANY STATS
-**Fix in que sorri**
-
 # SVC
 **Stats With Consistency**
 

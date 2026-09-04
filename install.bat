@@ -136,6 +136,8 @@ echo.
 echo   Nothing leaves your PC beyond an optional check for app updates on
 echo   launch (no account, no uploads). Turn it off any time in config.json.
 echo.
+echo   To remove it later, run uninstall.bat in this folder.
+echo.
 
 choice /c YN /n /m "   Start it now? [Y/N] "
 if errorlevel 2 goto :done

@@ -5,6 +5,58 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.10.0 - 2026-09-04
+
+**TL;DR - a fix batch on top of the v0.9.0 rework: the new stats engine's
+extra `computeTrends` passes made window switches take seconds instead of
+milliseconds, and are gone; the Matched/All-cells headline cards that showed
+a bare `—` when a cell couldn't be compared now say why; and four new toggles
+plus an uninstall.bat close out the setup/teardown and notification-control
+requests.**
+
+### Performance: window switching back to milliseconds
+
+- `render()` was calling `computeTrends` five times per pass across the v0.9.0
+  rework - two of them redundant recomputation of data already produced
+  earlier in the same render. Removed; switching the time-frame window is
+  back to near-instant instead of taking seconds.
+
+### Headline cards explain a blank comparison instead of just showing one
+
+- The Matched and All-cells headline cards used `cmpWhy()` for their
+  per-row tooltips but had no equivalent of their own, so a cell that
+  couldn't be compared just rendered `—` with nothing to explain it. They now
+  carry the same reasoning (e.g. "needs 8+ sessions in this window at some
+  single scenario/cm combination - the closest currently has 4").
+
+### Notification control: two switches, not one
+
+- **All notifications off** silences every toast, PB and achievement
+  celebrations included.
+- **Nudges off (PB still shows)** silences only the behavioural reminders -
+  break reminders, idle nudges, "mostly idle this session" - since those are
+  what people actually want to turn off without losing the thing that makes
+  this app fun to have open. PB/achievement toasts don't carry the `nudge`
+  flag this checks, so they're unaffected.
+
+### Two new section-visibility toggles
+
+- **Show month view** and **Show benchmark progress** hide the Months
+  calendar and the Benchmark progress headline respectively, independent of
+  the "What's moving it?" hypothesis panel underneath, which stays visible
+  either way. Both default on and remember your choice.
+
+### uninstall.bat
+
+- Removes the Desktop and Start Menu shortcuts `install.bat` creates, then
+  deletes the install folder. Nothing in this app touches the registry or
+  Task Scheduler, so shortcuts plus the folder itself are the entire
+  footprint. Ships next to `start.bat`/`install.bat` from now on
+  (`release.py`'s `TOP_FILES`), and `install.bat`'s completion message now
+  points to it.
+
+---
+
 ## v0.9.0 - 2026-09-03
 
 **TL;DR - the statistics engine's full rework from `CALCULATIONS-V4.md` ships:

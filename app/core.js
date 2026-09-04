@@ -218,6 +218,21 @@ let sessionCollapsed = false;
 // that helpful, some find it follows them around; it is a toggle, remembered.
 let followScen = lsGet('kva_follow') !== '0';
 function saveFollowScen(){ lsSet('kva_follow', followScen ? '1' : '0'); }
+// Notifications: two separate switches. `notifsOff` silences everything,
+// PBs included. `nudgesOff` leaves PB/achievement toasts alone (see the
+// `nudge` opt on toast() below) and only silences the behavioural ones -
+// break reminders, idle nudges, "mostly idle this session" - since those are
+// what people actually want to turn off without losing the thing that makes
+// this app fun to have open.
+let notifsOff = lsGet('kva_notifs_off') === '1';
+function saveNotifsOff(){ lsSet('kva_notifs_off', notifsOff ? '1' : '0'); }
+let nudgesOff = lsGet('kva_nudges_off') === '1';
+function saveNudgesOff(){ lsSet('kva_nudges_off', nudgesOff ? '1' : '0'); }
+// Section visibility: on by default, remembered once turned off.
+let showMonthView = lsGet('kva_show_months') !== '0';
+function saveShowMonthView(){ lsSet('kva_show_months', showMonthView ? '1' : '0'); }
+let showBenchProgress = lsGet('kva_show_benchprog') !== '0';
+function saveShowBenchProgress(){ lsSet('kva_show_benchprog', showBenchProgress ? '1' : '0'); }
 let lastIdleNudge = 0;
 let favCms = new Set();
 try { favCms = new Set(JSON.parse(lsGet('kva_favcms')||'[]')); } catch(e){}
@@ -1489,7 +1504,14 @@ function render(){
   $('#allnote').style.display = hasPrevWindow ? 'none' : 'block';
 
   const analysisClusters = hasCmData ? computeCmClusters(cmAnalysisPool) : [];
-  const rows = computeTrends(pool, windowStart, windowEnd, effCmpMode, minRuns, analysisClusters, displayPool);
+  // computeTrends' own minRuns filter is the only place minRuns matters -
+  // computeCells (the expensive part) never sees it - so computing once at
+  // minRuns=1 and filtering here is exactly equivalent to computing at
+  // `minRuns` directly, and lets the 'recent' sort below (which needs the
+  // minRuns=1 set anyway) reuse this instead of recomputing computeCells
+  // from scratch a second time (Batch 11 perf fix).
+  const rowsAll1 = computeTrends(pool, windowStart, windowEnd, effCmpMode, 1, analysisClusters, displayPool);
+  const rows = minRuns <= 1 ? rowsAll1.slice() : rowsAll1.filter(r => r.st.n >= minRuns);
   renderCalendar(pool, displayPool, analysisClusters, effCmpMode);
 
   // CALCULATIONS-V4 §10.1: the benchmark aggregate is the app's primary,
@@ -1625,8 +1647,7 @@ function render(){
   let displayRows = rows;
   if(sortBy==='recent'){
     const already = new Set(rows.map(r => r.scen));
-    const allPlayed = computeTrends(pool, windowStart, windowEnd, effCmpMode, 1, analysisClusters, displayPool);
-    const extra = allPlayed.filter(r => !already.has(r.scen));
+    const extra = rowsAll1.filter(r => !already.has(r.scen));
     displayRows = rows.concat(extra).sort((a,b) => lastAt(b) - lastAt(a));
   }
 
@@ -1731,14 +1752,18 @@ function render(){
   // Big cards carry the estimate plus its interval underneath — unless the
   // interval crosses zero, in which case both the number and its interval move
   // behind the "within noise" hover instead of sitting in the default view.
-  const estCard = (k, e, avail) => {
-    const ns = avail && e && e.pct != null && ciCrossesZero(e);
-    return [k, avail ? (ns ? nsTag(e) : estStr(e)) : '—', avail ? estCls(e) : '',
-      (avail && e && e.se != null && !ns) ? '<div class="vsub ci">'+ciStr(e).replace(/^ /,'')+'</div>' : '', true];
+  const estCard = (k, e, avail, why) => {
+    const missing = !e || e.pct == null;
+    const ns = avail && !missing && ciCrossesZero(e);
+    const val = !avail ? '—' : ns ? nsTag(e) : missing
+      ? (why ? '<span class="nocmp" title="'+esc(why)+'">—</span>' : '—')
+      : estStr(e);
+    return [k, val, avail ? estCls(e) : '',
+      (avail && !missing && e.se != null && !ns) ? '<div class="vsub ci">'+ciStr(e).replace(/^ /,'')+'</div>' : '', true];
   };
 
   if(has('#benchHeadlineWrap')){
-    if(benchChoices.length){
+    if(showBenchProgress && benchChoices.length){
       $('#benchHeadlineWrap').style.display = 'block';
       $('#benchHeadlinePick').innerHTML = benchChoices
         .map(x => '<option value="'+esc(x.b.name)+'"'+(x.b.name===benchAggName?' selected':'')+'>'+esc(x.b.name)+'</option>').join('');
@@ -1788,9 +1813,9 @@ function render(){
   // Matched (real baseline data only) above the existing all-cells cards.
   if(has('#matchedHeadlineWrap')){
     const matchedCards = [
-      estCard('Ceiling change', matchedPb, true),
-      estCard('Typical change', matchedAvg, true),
-      estCard('Floor change', matchedLow, true)
+      estCard('Ceiling change', matchedPb, true, !matchedPb && headlineWhy(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, true)),
+      estCard('Typical change', matchedAvg, true, !matchedAvg && headlineWhy(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, true)),
+      estCard('Floor change', matchedLow, true, !matchedLow && headlineWhy(allCells, 'floor', TUNING.FLOOR_MIN_SESS, true))
     ];
     $('#matchedHeadlineCards').innerHTML = matchedCards.map(cardHtml).join('');
     $('#matchedHeadlineNote').textContent = matchedComposition.all
@@ -1801,9 +1826,9 @@ function render(){
   }
 
   const cards = [
-    estCard('Ceiling change', overallPb, true),
-    estCard('Typical change', overallAvg, true),
-    estCard('Floor change', overallLow, true),
+    estCard('Ceiling change', overallPb, true, !overallPb && headlineWhy(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, false)),
+    estCard('Typical change', overallAvg, true, !overallAvg && headlineWhy(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, false)),
+    estCard('Floor change', overallLow, true, !overallLow && headlineWhy(allCells, 'floor', TUNING.FLOOR_MIN_SESS, false)),
     estCard('Typical vs Ceiling', avgVsPb, true),
     estCard('Vs prev timeframe', avgVsPrev, !!days),
     ['Runs in window', runsInWindow.toLocaleString(), ''],
@@ -1868,7 +1893,7 @@ function render(){
   $('#cmCards').innerHTML = cmCards.map(cardHtml).join('');
 
   renderSessionPanel();
-  const series = computeTrendSeries(pool, windowStart, windowEnd, effCmpMode, minRuns, analysisClusters);
+  const series = computeTrendSeries(pool, windowStart, windowEnd, rows);
   $('#trendChartWrap').innerHTML = trendChartHtml(series, windowStart, windowEnd);
 
   if(hasCmData && (cmBreakdown.length || rangeBreakdown.length)){
@@ -2196,6 +2221,32 @@ function cmpWhy(v, key, minN){
 
 function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
+// Aggregate-headline version of cmpWhy() above (CALCULATIONS-V4 §7.3: "never a
+// blank dash, state the gap in sessions"). `allCells` is every scenario x
+// cm-cluster cell feeding the headline; `requireReal` restricts the search to
+// cells with a real (non-early-baseline) result, matching what the Matched
+// card itself counts, so it can name fallback-reliance specifically instead
+// of a session count that's already been cleared.
+function headlineWhy(allCells, key, minN, requireReal){
+  const withEnoughWindow = allCells.filter(c => c.wSess && c.wSess.n >= minN);
+  if(!withEnoughWindow.length){
+    const bestW = allCells.reduce((m,c) => Math.max(m, (c.wSess && c.wSess.n) || 0), 0);
+    return 'Needs ' + minN + '+ sessions in this window at some single scenario/cm combination — ' +
+      'the closest currently has ' + bestW + '.';
+  }
+  if(requireReal){
+    const real = withEnoughWindow.filter(c => c.b.n > 0 && c[key] && !c[key].early);
+    if(!real.length){
+      const n = withEnoughWindow.length;
+      return n + ' cell' + (n===1?'':'s') + ' clear' + (n===1?'s':'') + ' ' + minN +
+        '+ sessions this window, but ' + (n===1?'it leans':'they lean') +
+        ' on a fitted familiarisation baseline rather than a real earlier period — see All cells below.';
+    }
+  }
+  const bestB = withEnoughWindow.reduce((m,c) => Math.max(m, (c.bSess && c.bSess.n) || 0), 0);
+  return 'Needs ' + minN + '+ matching sessions before this window too — the closest currently has ' + bestB + '.';
+}
+
 // A scenario you have not touched in a while has a stale average: the % is
 // still measured against an old baseline, so it says more about where you left
 // off than where you are now. Flag it rather than quietly showing a number.
@@ -2211,15 +2262,17 @@ function staleNote(r, windowEnd){
 // cumulative (window start → that date) measured against the same baseline the
 // cards use, so the right-hand edge lands exactly on the card values and the
 // curve shows how you got there rather than bouncing around on daily noise.
-function computeTrendSeries(pool, windowStart, windowEnd, cmpMode, minRuns, clusters, buckets){
+// `rows` is the render()-computed computeTrends() result for this exact
+// pool/window/minRuns - recomputing it here used to cost a whole extra
+// computeCells pass for identical inputs (Batch 11 perf fix).
+function computeTrendSeries(pool, windowStart, windowEnd, rows, buckets){
   buckets = buckets || TUNING.TREND_BUCKETS;
   const t0 = windowStart.getTime(), t1 = windowEnd.getTime();
   const span = Math.max(1, t1 - t0);
-  const full = computeTrends(pool, windowStart, windowEnd, cmpMode, minRuns, clusters);
   // Chart baseline is the scenario-level pooled baseline (all its cells), which
   // is what the cumulative curve is measured against.
   const baseByScen = {};
-  full.forEach(r => {
+  rows.forEach(r => {
     const baseScores = r.cells.reduce((a,c) => a.concat(c.b.sorted || []), []);
     if(baseScores.length) baseByScen[r.scen] = stats(baseScores);
   });
@@ -2998,7 +3051,7 @@ function pbsIn(a, b){
 
 function renderCalendar(pool, displayPool, clusters, cmpMode){
   if(!has('#calendarWrap')) return;
-  if(!RUNS.length){ $('#calendarWrap').innerHTML = ''; return; }
+  if(!showMonthView || !RUNS.length){ $('#calendarWrap').innerHTML = ''; return; }
   // Recomputing five months of trends on every 5-second poll is pure waste -
   // the calendar only moves when the data or the exclusions move.
   const key = [dataVersion, pool.length, excludeWarmup, excludeRefam, cmMode,
@@ -3316,9 +3369,13 @@ function findToast(key){
 //         than stacking six copies of "take a break".
 // opts  - {kind:'warn'|'info'|'good'|'celebrate', ms:auto-dismiss (0 = sticky),
 //          once:true = dismissing it silences that key for the session,
-//          center:true = middle of the viewport instead of the corner}
+//          center:true = middle of the viewport instead of the corner,
+//          nudge:true = a behavioural reminder, silenced by the "nudges off"
+//          toggle while PB/achievement toasts (which don't set this) stay on}
 function toast(key, html, opts){
   opts = opts || {};
+  if(notifsOff) return null;
+  if(opts.nudge && nudgesOff) return null;
   if(opts.once && TOAST_DISMISSED.has(key)) return null;
   const layer = opts.center ? ensureToastCenter() : ensureToastLayer();
   // Removed from wherever it currently is, not just from the layer it is about
@@ -3494,7 +3551,7 @@ function noteRunForBreak(n){
 function fireBreak(why){
   toast('break', '☕ <b>Take a break</b> — ' + esc(why) +
     '. Step away for a few minutes; aim is a focus skill and tired reps reinforce bad habits.',
-    {kind:'warn'});
+    {kind:'warn', nudge:true});
   logMsg('break reminder fired', why);
 }
 // Fires at most once per session (Batch 8) — renderSessionPanel re-runs on
@@ -3507,7 +3564,7 @@ function maybeFireLowActiveNudge(s){
   const why = lowActiveDiagnosis(s);
   if(!why) return;
   lowActiveNudgeShownFor = s.start.getTime();
-  toast('lowactive', '⏸ <b>Mostly idle this session</b> — ' + esc(why), {kind:'warn'});
+  toast('lowactive', '⏸ <b>Mostly idle this session</b> — ' + esc(why), {kind:'warn', nudge:true});
   logMsg('low active-play nudge fired', {activePct: Math.round(s.activePct), spanSec: Math.round(s.spanSec)});
 }
 function renderBreakStatus(){
@@ -3530,7 +3587,7 @@ function checkIdleNudge(){
     lastIdleNudge = last;
     toast('idle', 'No completed run for ' + Math.floor(idleMin) +
       ' minutes. If you are restarting over and over, that is chasing an RNG PB rather than practising — ' +
-      'let a run finish and read the score instead.', {kind:'warn', ms:45000});
+      'let a run finish and read the score instead.', {kind:'warn', ms:45000, nudge:true});
     logMsg('idle nudge shown', {idleMin: Math.round(idleMin)});
   }
 }
@@ -3970,15 +4027,28 @@ function weeklyOutcome(normRuns){
 // "controlling total volume" comes down to without a real regression
 // library on hand: the share is close to orthogonal to how much you played
 // overall that week, which a raw-minutes dose would not be.
-function weeklyDose(scen, runs){
-  const tot = new Map(), scenT = new Map();
+// Split out from weeklyDose() (Batch 11 perf fix): the total-weekly-duration
+// half of the computation is identical for every candidate scenario, but used
+// to be redone from a full pass over `runs` per candidate — O(scenarios *
+// runs) instead of O(runs). computeAttribution tests ~every scenario the
+// player has (thousands), so that redundant pass was the entire 3+ second
+// render stall. Compute both halves in one pass here, then weeklyDoseFor()
+// just does a map lookup per candidate.
+function weeklyDoseTotals(runs){
+  const tot = new Map(), byScen = new Map();
   runs.forEach(r => {
     const wk = weekKey(r.date), dur = r.dur || 0;
     tot.set(wk, (tot.get(wk)||0) + dur);
-    if(r.scen === scen) scenT.set(wk, (scenT.get(wk)||0) + dur);
+    let scenT = byScen.get(r.scen);
+    if(!scenT){ scenT = new Map(); byScen.set(r.scen, scenT); }
+    scenT.set(wk, (scenT.get(wk)||0) + dur);
   });
+  return {tot, byScen};
+}
+function weeklyDoseFor(scen, tot, byScen){
+  const scenT = byScen.get(scen);
   const out = new Map();
-  tot.forEach((t, wk) => { if(t > 0) out.set(wk, (scenT.get(wk)||0) / t); });
+  tot.forEach((t, wk) => { if(t > 0) out.set(wk, (scenT && scenT.get(wk) || 0) / t); });
   return out;
 }
 
@@ -4075,9 +4145,10 @@ function computeAttribution(bench, normRuns, allRuns){
   const scenSeen = new Set();
   allRuns.forEach(r => { if(!benchScens.has(r.scen.trim().toLowerCase())) scenSeen.add(r.scen); });
 
+  const {tot, byScen} = weeklyDoseTotals(allRuns);
   const results = new Map();
   scenSeen.forEach(scen => {
-    const test = doseResponseTest(weeklyDose(scen, allRuns), outcomeByWeek);
+    const test = doseResponseTest(weeklyDoseFor(scen, tot, byScen), outcomeByWeek);
     if(test) results.set(scen, test);
   });
   const tested = [...results.keys()];
@@ -4652,6 +4723,31 @@ if(has('#brkEnable')){
   $('#brkMin').addEventListener('change', () => { BRK.everyMin = +$('#brkMin').value||0; saveBreakPrefs(); if(BRK.enabled) startBreakTimer(); });
   $('#brkReset').addEventListener('click', () => { startBreakTimer(); $('#breakAlert').innerHTML = ''; });
   if(BRK.enabled && BRK.autostart) startBreakTimer();
+}
+
+if(has('#notifsOffChk')){
+  $('#notifsOffChk').checked = notifsOff;
+  $('#notifsOffChk').addEventListener('change', () => {
+    notifsOff = $('#notifsOffChk').checked; saveNotifsOff();
+  });
+}
+if(has('#nudgesOffChk')){
+  $('#nudgesOffChk').checked = nudgesOff;
+  $('#nudgesOffChk').addEventListener('change', () => {
+    nudgesOff = $('#nudgesOffChk').checked; saveNudgesOff();
+  });
+}
+if(has('#showMonthsChk')){
+  $('#showMonthsChk').checked = showMonthView;
+  $('#showMonthsChk').addEventListener('change', () => {
+    showMonthView = $('#showMonthsChk').checked; saveShowMonthView(); render();
+  });
+}
+if(has('#showBenchProgChk')){
+  $('#showBenchProgChk').checked = showBenchProgress;
+  $('#showBenchProgChk').addEventListener('change', () => {
+    showBenchProgress = $('#showBenchProgChk').checked; saveShowBenchProgress(); render();
+  });
 }
 
 $('#exWarmup').addEventListener('change', () => { excludeWarmup = $('#exWarmup').checked; render(); });

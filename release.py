@@ -58,7 +58,7 @@ COPY_DIRS = ["app"]
 # Stay visible at the top of a frozen release (Batch 11 folder tidy-up) - the
 # only two files a user should ever need to look at. Everything in COPY_FILES/
 # COPY_DIRS above lands one level down, in internal/, instead.
-TOP_FILES = ["start.bat", "install.bat"]
+TOP_FILES = ["start.bat", "install.bat", "uninstall.bat"]
 # generated per-install state - never inherited from the working copy
 SKIP = {"cache", "logs", "__pycache__", "releases", "config.json"}
 

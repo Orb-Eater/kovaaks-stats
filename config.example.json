@@ -1,7 +1,7 @@
 {
   "stats_folder": "",
   "port": 8765,
-  "scan_interval_seconds": 5,
+  "scan_interval_seconds": 1,
   "open_browser": true,
   "auto_update": true
 }

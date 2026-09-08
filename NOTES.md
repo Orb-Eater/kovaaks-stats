@@ -1,7 +1,7 @@
 # KovaaK's stats — project notes
 
-Handoff notes so a fresh session (or future you) can pick this up without
-re-deriving anything. Written 2026-08-31.
+Design and implementation notes for this project: why things work the way they
+do, and which quirks are load-bearing. Written 2026-08-31.
 
 ---
 
@@ -17,7 +17,7 @@ opens the Store. Order: `py -3`, `python` on PATH, then known install dirs.
 Or manually:
 
 ```bash
-cd L:\Claude\KovaaksStats
+cd C:\path\to\KovaaksStats
 python server.py
 ```
 
@@ -86,8 +86,8 @@ KovaaksStats/
     data/benchmarks.json   Viscose Benchmarks S2, built by planning/viscose-import.py
 ```
 
-`L:\Claude\kovaaks-consistency.html` is the old single-file version, kept as a
-reference. It is superseded by this folder.
+An earlier single-file version of this tool exists outside the repo, kept only
+as a reference. It is superseded by this folder.
 
 ## Endpoints
 
@@ -184,7 +184,7 @@ If renders get slow again, measure this function first.
 ## Benchmarks
 
 - Source: the Viscose Benchmarks S2 CSV export in
-  `L:\Claude\Benchmarks\Viscose s2\csv\`, one file per difficulty. Built by
+  `<your-benchmarks-folder>/csv/`, one file per difficulty. Built by
   **`planning/viscose-import.py`** (dry-run by default, `--write` to commit) into
   `app/data/benchmarks.json` as `{name, kbid?, scenarios:[{n, r:[{n,t}]}]}`
   (`t` = score threshold). Rerun it whenever the sheet is revised.
@@ -227,8 +227,8 @@ Both need 3+ runs per scenario per bucket on each side, so sparse cms show `—`
 
 ## Known gaps / next steps
 
-- Benchmark work was explicitly deferred ("putting further adjustments on
-  benchmark later").
+- Further benchmark tuning is deferred; the sheet is still a working draft and
+  the thresholds may yet be revised.
 - `CM_K` duplicated between Python and JS (see above).
 - Deleting a CSV bumps the version and drops the run — intentional, but it means
   an external cleanup of the stats folder shows up live in the UI.
@@ -281,8 +281,8 @@ per-font `ToUnicode` CMap, including its `bfrange` **array** form
 
 ## Versioning — what people actually use
 
-You asked whether to switch to a conventional scheme. Short answer: what we have
-is already **SemVer**, we are just using it timidly.
+The scheme already in use here is **SemVer** - it has just been applied
+timidly.
 
 **Semantic versioning** is `MAJOR.MINOR.PATCH`:
 
@@ -307,7 +307,7 @@ What that implies for this project:
   which has already happened twice here.
 
 Nothing has been renumbered - the existing folders stay as they are. The switch,
-if you want it, starts at the next release.
+if adopted, starts at the next release.
 
 ## Run resets - how they are detected
 
@@ -388,8 +388,9 @@ squashes everything into the top of the frame.
 arrays). It was edited until it parsed. **That made it readable, not correct** -
 roughly 30 of its 39 scenarios were lost in the process and were never recovered,
 which is why the bundled Viscose S2 Medium benchmark has only 9. Do not describe
-that file as repaired anywhere. The replacement is the raw xlsx/CSV export in
-`L:\Claude\Benchmarks\Viscose s2\`, queued for Batch 10.
+that file as repaired anywhere. The replacement is the raw xlsx/CSV export
+of the original Viscose S2 benchmark, kept outside this repo, queued for
+Batch 10.
 
 ## The folder picker, and why it looked broken
 
@@ -439,7 +440,7 @@ window class and close it:
     user32.PostMessageW(hwnd, 0x0010, 0, 0)      # WM_CLOSE
 
 `Show()` then returns `0x800704C7` (ERROR_CANCELLED), which is the same path as
-a real Cancel. `scratchpad/test_picker.py` in the session notes does this for all
+a real Cancel. A scratch `test_picker.py` does this for all
 four cases: picker direct, full `native_pick_folder`, every picker failing, and a
 picker succeeding.
 
@@ -467,14 +468,13 @@ run and exits. It never pushes commits: that is `git push`, deliberately separat
 `stats_folder`. Belt and braces: `release.py` already writes a blank one at
 freeze time. It used to copy the working copy's folder, which baked one
 person's path into every build and overrode the choice the user of that release
-had already made. `HANDOFF.md` lives outside the repo entirely now (see below),
-so it was never a candidate for either list.
+had already made.
 
 ## What the app promises about privacy
 
 It used to say "no network calls". That stopped being true the moment outbound
 API calls were approved (playlist share codes resolve server-side against
-KovaaK's). The claim in README and HANDOFF is now the one that survives contact
+KovaaK's). The claim in README is now the one that survives contact
 with the roadmap:
 
 > your run data is never uploaded anywhere - it is read from your stats folder

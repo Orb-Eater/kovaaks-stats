@@ -157,11 +157,6 @@ const TUNING = {
 };
 let excludeWarmup = true;
 let excludeRefam = true;
-// Off by default: these overlay a trader's-eye read (trendlines through the
-// first/latest swing high and low, projected across the whole chart, plus a
-// raw run-to-run line) on top of the chart's normal smoothed stats. Useful
-// when you want it, noise when you don't - hence one toggle, not three.
-let tradingLines = false;
 
 const _stubs = new Map();
 const $ = s => {
@@ -1584,12 +1579,15 @@ function render(){
        se: (overallAvg.se!=null && overallPb.se!=null) ? Math.sqrt(overallAvg.se**2 + overallPb.se**2) : null}
     : null;
 
-  let avgVsPrev = null;
+  // prevAllCells is hoisted so the card can say why it's blank when the
+  // PREVIOUS window is the thin one, not this one.
+  let avgVsPrev = null, prevAllCells = null;
   if(hasPrevWindow){
     const prevEnd = new Date(windowStart.getTime() - 1);
     const prevStart = new Date(windowStart.getTime() - spanDays*864e5);
     const prevRows = computeTrends(pool, prevStart, prevEnd, cmpMode, minRuns, analysisClusters);
     const prevCells = prevRows.reduce((a,r) => a.concat(r.cells), []);
+    prevAllCells = prevCells;
     const prevOverallAvg = overallOf(prevCells.map(c=>c.typical));
     if(overallAvg && prevOverallAvg) avgVsPrev = {
       pct: overallAvg.pct - prevOverallAvg.pct,
@@ -1685,6 +1683,13 @@ function render(){
       ? nsTag(e) + (e.early ? ' '+earlyTag(e.earlyN) : '')
       : '<span class="'+estCls(e)+'">'+pctStr(e.pct)+'</span><span class="ci">'+ciStr(e)+'</span>';
 
+  // The rough reading for a dead card: one cell, both periods, no fallback
+  // baseline, no pooling, no sampling. closestAvailable() computes it from the
+  // per-side levels alone, so it exists whenever both sides have at least one
+  // session — and it is labelled rough everywhere it is shown, because a
+  // change built from one session on a side is two numbers, not a trend.
+  const provOf = (near, key) => (near && near.rough && near.key === key) ? near.rough : null;
+
   // cm/360 breakdown (always computed from the full cm spectrum, ignoring the active Range/Specific filter,
   // so different cms can be compared side by side) + best/worst performing cm.
   let cmBreakdown = [], bestCm = null, worstCm = null;
@@ -1752,14 +1757,91 @@ function render(){
   // Big cards carry the estimate plus its interval underneath — unless the
   // interval crosses zero, in which case both the number and its interval move
   // behind the "within noise" hover instead of sitting in the default view.
-  const estCard = (k, e, avail, why) => {
+  //
+  // A dead card used to be a dash with the shortfall hidden in its hover. It
+  // now puts the shortfall itself in the number slot as a fraction — a count,
+  // with no statistics behind it, so nothing is being claimed — and hangs the
+  // closest real reading underneath. That reading is one named scenario from
+  // closestAvailable(), never a pool, never with a confidence interval, and
+  // styled quieter than a live estimate: it is something to look at, not a
+  // measurement to act on. headlineWhy()'s sentence stays exactly as it was
+  // and stays on the hover.
+  // Scores here span roughly 1 to 5000. Rounding to an integer is right at
+  // the top of that range and destroys the number at the bottom: a floor of
+  // 3.554 printed as "4" is a 12% error in a figure the card offers as a
+  // reading.
+  const lvlStr = v => Math.abs(v) >= 100 ? Math.round(v).toLocaleString()
+    : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2);
+  // A level shows up with no change beside it for three different reasons, and
+  // the old text asserted one of them unconditionally: "not enough to state a
+  // direction". That is a claim about the data, and it was false whenever the
+  // real reason was something else — on the vs-prev card it contradicted the
+  // Typical card directly above, which stated a direction from the same cell.
+  // near.noChange lets a card supply its own reason where none of the generic
+  // ones is the true one.
+  const noChangeWhy = near =>
+    near.noChange ? near.noChange
+    : near.rb.n < 1
+      ? 'there are no earlier sessions of this scenario to compare against yet, so there is no change to show.'
+    : 'the change could not be computed from these sessions.';
+  // What one session takes, from the same constants the session split runs
+  // on. This is the concrete ask behind every "N to go": the user cannot act
+  // on a session count without knowing what counts as a session.
+  const sessionRule = TUNING.SESSION_MIN_RUNS + '+ runs per session · ' +
+    TUNING.SESSION_GAP_MIN + '+ min break between sessions';
+  const sessionRuleWhy = ' A session is ' + TUNING.SESSION_MIN_RUNS + ' or more runs of that scenario in ' +
+    'one sitting; a break of ' + TUNING.SESSION_GAP_MIN + '+ minutes starts the next session.';
+  const provSub = (near, prov) => {
+    const toGo = Math.max(0, near.need - near.have);
+    const ask = near.frame === 'prev'
+      // "N to go" names an action. Against the previous timeframe there is
+      // none: that window has closed and nothing played now lands inside it.
+      ? 'sessions in the previous timeframe · that window has closed'
+      : near.stage === 'window'
+        ? 'sessions · ' + toGo + ' more to go'
+        : 'earlier sessions · ' + toGo + ' more needed before this window';
+    const scen = (prov && prov.scen) || near.scen;
+    const roughTitle = prov && (prov.title || (scen + ' — a rough change: your ' + near.key + ' across the ' +
+      prov.wn + ' session' + (prov.wn === 1 ? '' : 's') + ' in this window (' + lvlStr(prov.wv) +
+      ') against the ' + prov.bn + ' earlier session' + (prov.bn === 1 ? '' : 's') + ' (' + lvlStr(prov.bv) +
+      '). Rough: it is one scenario rather than your whole window, it sits below the ' + near.need +
+      '-session bar, the two sides are not n-matched, and no interval can be given, so it must not be read as your rate of change.'));
+    const roughTag = prov && (prov.tag || ('rough · ' + lvlStr(prov.wv) + ' now vs ' + lvlStr(prov.bv) + ' before'));
+    return '<div class="vsub prog">' + ask + '</div>' +
+    '<div class="vsub prog rule">' + sessionRule + '</div>' +
+    ((prov && prov.pct != null && isFinite(prov.pct))
+      ? '<div class="vsub prov" title="' + esc(roughTitle) + '">' + esc(scen) + ' ' + pctStr(prov.pct) +
+        ' <span class="provtag">' + esc(roughTag) + '</span></div>'
+      // No honest change to show. The LEVEL still exists and claims nothing:
+      // it is a score measured only against itself. It is also the only reading
+      // a dead card has, and a named scenario's level is exactly the "closest
+      // available data" these cards exist to surface — so it stays on every one
+      // of them, and it is not a change wearing a smaller font.
+      //
+      // What it must carry is the window it was measured in. near.frame ===
+      // 'prev' means the cell came out of the PREVIOUS window's cells, where
+      // "now" and "the sessions you have in this window" were both false.
+      : (near.rw.n >= 1 && near.rw[near.key] != null && isFinite(near.rw[near.key]))
+        ? '<div class="vsub prov" title="' + esc(near.scen + ' — your ' + near.key + ' on the ' +
+            near.rw.n + ' session' + (near.rw.n === 1 ? '' : 's') +
+            (near.frame === 'prev' ? ' in the previous timeframe' : ' you have in this window') +
+            '. A level, not a change: ' + noChangeWhy(near)) +
+          '">' + esc(near.scen) + ' ' + lvlStr(near.rw[near.key]) +
+          ' <span class="provtag">' + (near.frame === 'prev' ? 'prev' : 'now') + '</span></div>'
+        : '');
+  };
+  const estCard = (k, e, avail, why, near, prov) => {
     const missing = !e || e.pct == null;
     const ns = avail && !missing && ciCrossesZero(e);
+    const showNear = !!(avail && missing && why && near);
     const val = !avail ? '—' : ns ? nsTag(e) : missing
-      ? (why ? '<span class="nocmp" title="'+esc(why)+'">—</span>' : '—')
+      ? (showNear
+          ? '<span class="nocmp" title="'+esc(why + sessionRuleWhy)+'">'+near.have+'<span class="side">/'+near.need+'</span></span>'
+          : why ? '<span class="nocmp" title="'+esc(why)+'">—</span>' : '—')
       : estStr(e);
     return [k, val, avail ? estCls(e) : '',
-      (avail && !missing && e.se != null && !ns) ? '<div class="vsub ci">'+ciStr(e).replace(/^ /,'')+'</div>' : '', true];
+      showNear ? provSub(near, prov)
+        : (avail && !missing && e.se != null && !ns) ? '<div class="vsub ci">'+ciStr(e).replace(/^ /,'')+'</div>' : '', true];
   };
 
   if(has('#benchHeadlineWrap')){
@@ -1812,10 +1894,16 @@ function render(){
   // CALCULATIONS-V4 §6.1: two headlines, always both, separately labelled -
   // Matched (real baseline data only) above the existing all-cells cards.
   if(has('#matchedHeadlineWrap')){
+    // requireReal, so closestAvailable() returns null on the familiarisation
+    // branch — those cells already clear the session bar and a fraction there
+    // would state a shortfall that doesn't exist.
+    const mNearPb  = !matchedPb  && closestAvailable(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, true);
+    const mNearAvg = !matchedAvg && closestAvailable(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, true);
+    const mNearLow = !matchedLow && closestAvailable(allCells, 'floor',   TUNING.FLOOR_MIN_SESS,   true);
     const matchedCards = [
-      estCard('Ceiling change', matchedPb, true, !matchedPb && headlineWhy(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, true)),
-      estCard('Typical change', matchedAvg, true, !matchedAvg && headlineWhy(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, true)),
-      estCard('Floor change', matchedLow, true, !matchedLow && headlineWhy(allCells, 'floor', TUNING.FLOOR_MIN_SESS, true))
+      estCard('Ceiling change', matchedPb, true, !matchedPb && headlineWhy(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, true), mNearPb, provOf(mNearPb, 'ceiling')),
+      estCard('Typical change', matchedAvg, true, !matchedAvg && headlineWhy(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, true), mNearAvg, provOf(mNearAvg, 'typical')),
+      estCard('Floor change', matchedLow, true, !matchedLow && headlineWhy(allCells, 'floor', TUNING.FLOOR_MIN_SESS, true), mNearLow, provOf(mNearLow, 'floor'))
     ];
     $('#matchedHeadlineCards').innerHTML = matchedCards.map(cardHtml).join('');
     $('#matchedHeadlineNote').textContent = matchedComposition.all
@@ -1825,12 +1913,109 @@ function render(){
       : '';
   }
 
+  const nearCeil = !overallPb  && closestAvailable(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, false);
+  const nearTyp  = !overallAvg && closestAvailable(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, false);
+  const nearLow  = !overallLow && closestAvailable(allCells, 'floor',   TUNING.FLOOR_MIN_SESS,   false);
+
+  // Typical vs Ceiling is a gap between two changes, so it blanks when either
+  // side does — and the side that is missing is ALWAYS the ceiling, so there
+  // is no key to choose here. This used to read `!overallPb ? 'ceiling' :
+  // 'typical'`; the typical arm could not be reached and must not be restored:
+  //   changeWithSE() takes both figures from one stats(sessionValues(...),
+  //   SESS_THRESH) pair per side, gating ceiling at CEILING_MIN_SESS (8) and
+  //   typical at TYPICAL_MIN_SESS (6), and falls back to the SAME
+  //   earlyBaseline() level for either. Session values are trimmed means of
+  //   score>0 runs, so every one of them is positive. 8 >= 6 therefore makes
+  //   any cell with a ceiling change carry a typical change too, so overallPb
+  //   implies overallAvg, and avgVsPb is exactly overallAvg && overallPb.
+  //   overallPb present with avgVsPb absent is unreachable, and the arm below
+  //   only runs when avgVsPb is absent.
+  // Both halves of the rough gap come from the SAME cell, which is the
+  // only reason it is honest to subtract them.
+  const vsWhy  = !avgVsPb && headlineWhy(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, false);
+  const vsNear = !avgVsPb && closestAvailable(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, false);
+  const vsProv = (() => {
+    // Both halves come from the same cell and both are the per-side rough
+    // figures closestAvailable() computes — no sampler, so the gap is as
+    // deterministic as its halves.
+    if(!vsNear) return null;
+    const t = roughChange(vsNear.rw, vsNear.rb, 'typical');
+    const c = roughChange(vsNear.rw, vsNear.rb, 'ceiling');
+    if(!t || !c) return null;
+    const one = n => n + ' session' + (n === 1 ? '' : 's');
+    return {pct: t.pct - c.pct, se: null, wn: t.wn, bn: t.bn, wv: t.wv, bv: t.bv,
+      tag: 'rough · typical ' + pctStr(t.pct) + ' vs ceiling ' + pctStr(c.pct),
+      title: vsNear.scen + ' — a rough gap: this scenario\'s rough typical change (' + pctStr(t.pct) +
+        ') minus its rough ceiling change (' + pctStr(c.pct) + '), both from the ' + one(t.wn) +
+        ' in this window against ' + one(t.bn) + ' earlier. Rough: one scenario, below the ' +
+        vsNear.need + '-session bar, sides not n-matched, no interval.'};
+  })();
+
+  // Vs prev timeframe spans two windows, so its two best-covered cells are
+  // chosen independently and can be different scenarios. The fraction and the
+  // level come from whichever window is the thin one. The rough % is a
+  // separate, stricter pick: the SAME scenario/cm cell must exist in both
+  // windows with a rough typical change on each side, and the figure is one
+  // rough change minus the other — never one scenario's figure against
+  // another scenario's.
+  const prevThin = !avgVsPrev && hasPrevWindow;
+  // headlineWhy() says "this window", which is true everywhere else it is
+  // called and false the moment it is prefixed with "Previous timeframe":
+  // the reader gets a sentence about the current window under a heading about
+  // the previous one. Swapped at the call site — headlineWhy() itself is
+  // frozen, byte-compared against the engine port.
+  const prevWhy = prevThin && (overallAvg
+    ? (prevAllCells ? 'Previous timeframe — ' + headlineWhy(prevAllCells, 'typical', TUNING.TYPICAL_MIN_SESS, false)
+        .replace('this window', 'that timeframe') : '')
+    : headlineWhy(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, false));
+  const prevNearRaw = prevThin && (overallAvg
+    ? (prevAllCells ? closestAvailable(prevAllCells, 'typical', TUNING.TYPICAL_MIN_SESS, false) : null)
+    : nearTyp);
+  // Tag the window the cell was actually measured in. With overallAvg present
+  // the shortfall is in the PREVIOUS window, so the cell comes out of
+  // prevAllCells and its reading belongs to a period that has already closed;
+  // unlabelled, provSub printed it as "now" on "the sessions you have in this
+  // window", and both were false. The other branch reuses nearTyp, a
+  // current-window cell, where "now" is accurate.
+  //
+  // The level itself stays: it is the closest available data this card has,
+  // and that is what the card is for. What it must not carry is a percent.
+  // This card's number is one timeframe against another, and the fallback cell
+  // is drawn from a single timeframe — the previous one on this branch, the
+  // current one on the other. Either way only half the comparison exists, so
+  // there is no percent to state. That is the reason given on the hover, in
+  // place of the generic one, which claimed no direction could be stated while
+  // the Typical card above was stating one from the very same cell.
+  const prevNear = prevNearRaw
+    ? Object.assign({}, prevNearRaw, {
+        frame: overallAvg ? 'prev' : 'window',
+        noChange: 'a vs-prev number needs the same scenario measured in both ' +
+          'timeframes, and this level comes from just one of them, so no ' +
+          'percent is shown.'
+      })
+    : prevNearRaw;
+  const prevProv = (prevThin && prevAllCells) ? (() => {
+    const r = roughVsPrev(allCells, prevAllCells, prevNearRaw && (prevNearRaw.scen + ' ' + prevNearRaw.cluster));
+    if(!r) return null;
+    const one = n => n + ' session' + (n === 1 ? '' : 's');
+    return {pct: r.pct, se: null, scen: r.scen, wn: r.now.wn, bn: r.now.bn, wv: r.now.wv, bv: r.now.bv,
+      tag: 'rough · now ' + pctStr(r.now.pct) + ' vs prev ' + pctStr(r.prev.pct),
+      title: r.scen + ' — a rough vs-prev figure: this scenario\'s rough typical change in this window (' +
+        pctStr(r.now.pct) + ', ' + one(r.now.wn) + ' against ' + one(r.now.bn) + ' earlier) minus the same ' +
+        'scenario\'s rough typical change in the previous timeframe (' + pctStr(r.prev.pct) + ', ' +
+        one(r.prev.wn) + ' against ' + one(r.prev.bn) + ' earlier). Rough: one scenario, below the ' +
+        TUNING.TYPICAL_MIN_SESS + '-session bar in at least one timeframe, sides not n-matched, no interval.'};
+  })() : null;
+
   const cards = [
-    estCard('Ceiling change', overallPb, true, !overallPb && headlineWhy(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, false)),
-    estCard('Typical change', overallAvg, true, !overallAvg && headlineWhy(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, false)),
-    estCard('Floor change', overallLow, true, !overallLow && headlineWhy(allCells, 'floor', TUNING.FLOOR_MIN_SESS, false)),
-    estCard('Typical vs Ceiling', avgVsPb, true),
-    estCard('Vs prev timeframe', avgVsPrev, !!days),
+    estCard('Ceiling change', overallPb, true, !overallPb && headlineWhy(allCells, 'ceiling', TUNING.CEILING_MIN_SESS, false), nearCeil, provOf(nearCeil, 'ceiling')),
+    estCard('Typical change', overallAvg, true, !overallAvg && headlineWhy(allCells, 'typical', TUNING.TYPICAL_MIN_SESS, false), nearTyp, provOf(nearTyp, 'typical')),
+    estCard('Floor change', overallLow, true, !overallLow && headlineWhy(allCells, 'floor', TUNING.FLOOR_MIN_SESS, false), nearLow, provOf(nearLow, 'floor')),
+    estCard('Typical vs Ceiling', avgVsPb, true, vsWhy, vsNear, vsProv),
+    // was `!!days` — false on a custom range, so avgVsPrev was computed under
+    // hasPrevWindow and then thrown away. hasPrevWindow is the condition that
+    // actually decides whether the number exists.
+    estCard('Vs prev timeframe', avgVsPrev, hasPrevWindow, prevWhy, prevNear, prevProv),
     ['Runs in window', runsInWindow.toLocaleString(), ''],
     ['Scenarios shown', rows.length, ''],
     ['Mean spread (CV)', fmt(mean(rows.map(r=>r.st.cv).filter(v=>v!=null))) + '%', '']
@@ -1999,9 +2184,16 @@ function render(){
     const whyFor = key => { const m = missingCmp.find(x => x.key === key); return m ? m.why : null; };
     const row = (label, value, minN, est, key) => {
       const why = whyFor(key);
+      // "s<8" states what you do not have and hides what you do; 5 of 8 is
+      // something you can act on. Same have/need markup as the headline cards
+      // so the two read as one idea. st.nSessions is the count these minimums
+      // are actually gated on — computeTrends sets st.ceiling/typical/floor
+      // and st.nSessions from the same stats(sessionValues(rs), SESS_THRESH)
+      // call — so it is the number, not v.st.n, which counts runs.
+      const have = v.st.nSessions;
       return '<tr><td>'+label+'</td><td>'+
         (value==null
-          ? '<span class="nodata" title="'+esc('Withheld until there are '+minN+' sessions: below that this figure moves with the sample size rather than with your play.')+'">s&lt;'+minN+'</span>'
+          ? '<span class="nodata" title="'+esc('Withheld until there are '+minN+' sessions: below that this figure moves with the sample size rather than with your play. You have '+have+' in this window — '+(minN-have)+' to go.')+'">'+have+'<span class="side">/'+minN+'</span></span>'
           : fmt(value))+'</td>'+
         '<td>'+(why ? '<span class="nocmp" title="'+esc(label+' \u2014 '+why)+'">\u2014</span>' : estSpan(est))+'</td></tr>';
     };
@@ -2082,17 +2274,13 @@ function render(){
       // The chart is drawn from the pinned runs, but the chips are built from
       // every run the scenario has - filter to 45cm and the other chips have to
       // still be there, or there is no way back out except undoing the filter.
-      spark(v.rsAll || v.rs, colorByCm, r.rsAll || r.rs, pinCm, tradingLines)+
+      spark(v.rsAll || v.rs, colorByCm, r.rsAll || r.rs, pinCm)+
       '</div>'+
       '<div class="legend"><span><i style="background:var(--best)"></i>PB (step — it is a ratchet, not a slope)</span>'+
       '<span><i style="background:var(--med)"></i>rolling median</span>'+
       '<span><i style="background:var(--low)"></i>rolling bottom 10%</span>'+
       '<span><i style="background:var(--ink3)"></i>individual runs</span>'+
       '<span><i class="bandkey"></i>±1σ noise floor</span>'+
-      (tradingLines ?
-        '<span><i style="background:var(--tophi)"></i>topmost trend (first→latest top, projected)</span>'+
-        '<span><i style="background:var(--lowlo)"></i>lowest trend (first→latest low, projected)</span>'+
-        '<span><i style="background:var(--raw)"></i>run-to-run line</span>' : '')+
       '</div>'+
       '</div>'+
       // Deliberately the scenario's WHOLE history rather than the current
@@ -2155,14 +2343,40 @@ function scenCaveats(v, ctx){
   }
   const missing = ctx.missingCmp || [];
   if(missing.length){
+    // Two different situations wear the same dash, and the old closing line
+    // asserted the friendlier one for both. A row showing a real figure with
+    // no change beside it still tells you a level; a row whose VALUE is
+    // withheld too is blank on both sides and tells you nothing. Over this
+    // history at a 30-day window the second case was 245 of 246 listed rows,
+    // so "the value on the left is still real" was false almost everywhere it
+    // appeared. Which case a row is comes out of the same `v` the value column
+    // is printed from (row() prints v.st[key]), so it can be said per row.
+    const withVal = missing.filter(m => v.st[m.key] != null);
+    const noVal   = missing.filter(m => v.st[m.key] == null);
+    const names = l => l.map(m => '<b>' + m.label + '</b>').join(l.length === 2 ? ' and ' : ', ');
     out.push({
       t: missing.length === 3
         ? 'None of the three figures can be compared to a baseline yet'
         : missing.length + ' of the three figures have no baseline comparison',
       b: missing.map(m => '<b>' + m.label + '</b> \u2014 ' + m.why).join('<br><br>') +
          '<br><br>A dash in that column is not a zero and not a bug: it is the app declining to ' +
-         'print a number it cannot stand behind. The value on the left is still real \u2014 what is ' +
-         'missing is a trustworthy <i>change</i> against the period before this window.'
+         'print a number it cannot stand behind. ' +
+         [withVal.length
+           ? (noVal.length ? 'On ' + names(withVal) + ' the value on the left is still real'
+                           : 'The value on the left is still real') +
+             ' \u2014 what is missing is a trustworthy <i>change</i> against the period before ' +
+             'this window.'
+           : '',
+          noVal.length
+           ? (withVal.length ? 'On ' + names(noVal) + ' there is no value on the left either'
+                             : 'There is no value on the left either') +
+             ': that column is counting the sessions you have towards the number it needs rather ' +
+             'than printing a figure, because below that bar the figure moves with the sample ' +
+             'size rather than with your play. Nothing there is measured yet. The level is the ' +
+             'half that comes back first \u2014 it counts every session on this scenario inside the ' +
+             'window, while the comparison counts them one sensitivity band at a time and needs ' +
+             'an earlier period to set them against.'
+           : ''].filter(Boolean).join(' ')
     });
   }
   const staleDays = Math.floor((ctx.windowEnd - v.rs[v.rs.length-1].date) / 864e5);
@@ -2245,6 +2459,127 @@ function headlineWhy(allCells, key, minN, requireReal){
   }
   const bestB = withEnoughWindow.reduce((m,c) => Math.max(m, (c.bSess && c.bSess.n) || 0), 0);
   return 'Needs ' + minN + '+ matching sessions before this window too — the closest currently has ' + bestB + '.';
+}
+
+// The headline cards go blank the moment a session threshold isn't met, and
+// the only thing behind the dash is a tooltip naming the shortfall. That is
+// honest and useless in the same breath: you are told what you don't have and
+// shown nothing you do. This finds the single cell headlineWhy() is already
+// talking about — same filter, same reduce, same arguments — and hands back
+// the shortfall plus that one cell's stats recomputed with the session
+// minimums dropped, so the caller can show a real reading beside the message.
+//
+// Three rules keep the rough figure from becoming the "worse number"
+// this app refuses to compute elsewhere:
+//   1. ONE named cell, never a pool. overallOf()'s no-precision branch means
+//      mean(pct) across cells of wildly unequal reliability (see line 1055);
+//      a figure that is already below the bar has no business going through
+//      it and then being read as a portfolio number.
+//   2. It is the cell headlineWhy() names, selected by the identical rule, so
+//      the sentence and the number can never describe different data.
+//   3. Nothing comes back when the shortfall is not a session count. The
+//      requireReal familiarisation branch has cells that DO clear the bar, so
+//      an "n of minN sessions" fraction there would be a plain false statement.
+//
+// Nothing stats(), changeWithSE() or headlineWhy() returns is altered; this
+// only calls them again with a different threshold object.
+function closestAvailable(allCells, key, minN, requireReal){
+  // Deterministic across renders. Cells arrive in Object.values() order, so a
+  // bare max-reduce picks a stable cell only until two of them tie.
+  const pick = (list, nOf, tieOf) => list.reduce((m, c) => {
+    const n = nOf(c) || 0, mn = m ? (nOf(m) || 0) : -1;
+    if(n !== mn) return n > mn ? c : m;
+    // Tied on the count we ranked by, so both give the caller the same
+    // fraction — but only the one with sessions on the OTHER side can also
+    // carry a change. Prefer it; fall through to the name so the choice stays
+    // deterministic when that ties too.
+    const t = (tieOf(c) || 0), mt = (tieOf(m) || 0);
+    if(t !== mt) return t > mt ? c : m;
+    return (c.scen + ' ' + c.cluster) < (m.scen + ' ' + m.cluster) ? c : m;
+  }, null);
+
+  const withEnoughWindow = allCells.filter(c => c.wSess && c.wSess.n >= minN);
+  let cell, have, stage;
+  if(!withEnoughWindow.length){
+    cell = pick(allCells, c => c.wSess && c.wSess.n, c => c.bSess && c.bSess.n);
+    have = (cell && cell.wSess && cell.wSess.n) || 0;
+    stage = 'window';
+  } else {
+    if(requireReal && !withEnoughWindow.some(c => c.b.n > 0 && c[key] && !c[key].early)) return null;
+    cell = pick(withEnoughWindow, c => c.bSess && c.bSess.n, c => c.wSess && c.wSess.n);
+    have = (cell && cell.bSess && cell.bSess.n) || 0;
+    stage = 'baseline';
+  }
+  if(!cell) return null;
+
+  const {rw, rb} = relaxedSides(cell);
+  const balanced = !!(rw.n && rb.n) &&
+    Math.max(rw.n / rb.n, rb.n / rw.n) <= TUNING.N_MATCH_RATIO;
+  return {
+    scen: cell.scen, cluster: cell.cluster, key, have, need: minN, stage, rw, rb, balanced,
+    // The rough change for this key, or null when a side is empty.
+    rough: roughChange(rw, rb, key)
+  };
+}
+
+// Both sides of a cell re-measured with the session minimum dropped to 1.
+// RELAXED is local and deliberately not a TUNING key: these are display-only
+// minimums for a figure that is labelled rough wherever it is shown, and they
+// must never sit beside the thresholds the real estimates are gated on as
+// though they were peers. 1 rather than 0 — at 0, stats() hands trimmedMean
+// an empty array and typical comes back NaN.
+function relaxedSides(cell){
+  const RELAXED = {CEILING_MIN_N: 1, TYPICAL_MIN_N: 1, FLOOR_MIN_N: 1};
+  return {
+    rw: stats((cell.wSess && cell.wSess.sorted) || [], RELAXED, true),
+    rb: stats((cell.bSess && cell.bSess.sorted) || [], RELAXED, true)
+  };
+}
+
+// The rough change: the window-side level against the baseline-side level,
+// straight from the two relaxed stats() objects. Deliberately NOT
+// changeWithSE(): ceiling and floor there go through nMatchedHD(), which
+// subsamples the larger side with Math.random() once the counts differ by
+// more than N_MATCH_RATIO — and dropping the session minimum is precisely what
+// leaves the sides lopsided, so a rough figure would change on every redraw.
+// Per-side hdQuantile / trimmedMean is deterministic, so this figure is the
+// same on every render; when the sides ARE balanced it is exactly what
+// changeWithSE() returns, since nMatchedHD's non-sampling branch is the same
+// per-side quantile. No interval, no pooling: the caller labels it rough and
+// says on the hover why.
+function roughChange(rw, rb, key){
+  if(!rw || !rb || rw.n < 1 || rb.n < 1) return null;
+  const wv = rw[key], bv = rb[key];
+  if(wv == null || bv == null || !isFinite(wv) || !isFinite(bv) || !(bv > 0)) return null;
+  return {pct: (wv - bv) / bv * 100, wv, bv, wn: rw.n, bn: rb.n};
+}
+
+// Vs prev timeframe, rough: the same scenario/cm cell in both windows, each
+// with a rough typical change, and the figure is now-minus-prev. preferKey
+// (the cell the card's fraction already names) wins when it qualifies, so
+// the fraction, the level and the % describe one cell wherever possible;
+// otherwise the best-covered qualifying cell (max of the smallest of its four
+// session counts, then name) — deterministic across renders.
+function roughVsPrev(allCells, prevAllCells, preferKey){
+  const keyOf = c => c.scen + ' ' + c.cluster;
+  const prevBy = {};
+  prevAllCells.forEach(c => { prevBy[keyOf(c)] = c; });
+  const cands = [];
+  allCells.forEach(c => {
+    const p = prevBy[keyOf(c)];
+    if(!p) return;
+    const a = relaxedSides(c), b = relaxedSides(p);
+    const now = roughChange(a.rw, a.rb, 'typical'), prev = roughChange(b.rw, b.rb, 'typical');
+    if(!now || !prev) return;
+    cands.push({scen: c.scen, cluster: c.cluster, key: keyOf(c), now, prev, pct: now.pct - prev.pct,
+      depth: Math.min(now.wn, now.bn, prev.wn, prev.bn)});
+  });
+  if(!cands.length) return null;
+  const pref = preferKey && cands.find(x => x.key === preferKey);
+  if(pref) return pref;
+  return cands.reduce((m, x) => !m ? x
+    : x.depth !== m.depth ? (x.depth > m.depth ? x : m)
+    : (x.key < m.key ? x : m), null);
 }
 
 // A scenario you have not touched in a while has a stale average: the % is
@@ -4448,7 +4783,7 @@ document.addEventListener('mousemove', onSparkMove, {passive:true});
 document.addEventListener('mouseleave', hideSparkTip);
 window.addEventListener('scroll', hideSparkTip, {passive:true, capture:true});
 
-function spark(rsAll, byCm, legendRs, pinnedCm, trading){
+function spark(rsAll, byCm, legendRs, pinnedCm){
   // 2:1 plot area. Slope is judged most accurately when the average segment
   // sits near 45 degrees; wide-and-short charts flatten trends (Cleveland).
   const H = 340, W = Math.round(H * TUNING.CHART_ASPECT), P = 10, PL = 46;
@@ -4533,48 +4868,12 @@ function spark(rsAll, byCm, legendRs, pinnedCm, trading){
       'stroke="var(--low)" stroke-width="1.2" opacity=".65"/>';
   }).join('');
 
-  // Trading lines (off by default, one toggle): a trader's-eye read laid over
-  // the chart's own smoothed stats. Two trendlines run from your first run's
-  // score (the only "top"/"low" you had at the start) to the run that set
-  // your current all-time best/worst - wherever that landed - then project
-  // across the FULL chart width rather than stopping at those two points, the
-  // way a trendline through swing highs/lows gets extended on a price chart.
-  // If the record was set on run 1 and never touched again, both anchors are
-  // the same point and the line is flat, which is itself the honest read: it
-  // has stood the whole time. The third line is no model at all, just every
-  // run connected in order, for when the smoothing above is hiding the shape
-  // of the noise itself.
-  let tradingEls = '';
-  if(trading && rs.length > 1){
-    const xLo = PL, xHi = W-P;
-    const angleOf = m => Math.atan2(-m, 1) * 180 / Math.PI;
-    const trendLine = (i1, v1, i2, v2, color) => {
-      const x1 = x(i1), y1 = y(v1), x2 = x(i2), y2 = y(v2);
-      const m = Math.abs(x2 - x1) < 1e-6 ? 0 : (y2 - y1) / (x2 - x1);
-      const b = y1 - m * x1;
-      const yLo = m*xLo + b, yHi = m*xHi + b;
-      const angle = angleOf(m);
-      return '<path d="M'+xLo.toFixed(1)+','+yLo.toFixed(1)+'L'+xHi.toFixed(1)+','+yHi.toFixed(1)+
-        '" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/>'+
-        '<text x="'+(xHi-4).toFixed(1)+'" y="'+(yHi-6).toFixed(1)+'" text-anchor="end" font-size="11" fill="'+color+'">'+
-        (angle>0?'+':'')+angle.toFixed(1)+'°</text>';
-    };
-    const maxScore = Math.max(...sc), minScore = Math.min(...sc);
-    const topIdx = sc.indexOf(maxScore), lowIdx = sc.indexOf(minScore);
-    const rawPts = sc.map((v,i) => (i?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1)).join('');
-    tradingEls =
-      '<path d="'+rawPts+'" fill="none" stroke="var(--raw)" stroke-width="1" opacity=".55" vector-effect="non-scaling-stroke"/>'+
-      trendLine(0, sc[0], topIdx, maxScore, 'var(--tophi)') +
-      trendLine(0, sc[0], lowIdx, minScore, 'var(--lowlo)');
-  }
-
   const sparkId = sparkRegister({w:W, h:H, pts:hover});
   return '<svg id="'+sparkId+'" class="spark" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Score over time with individual runs, a one-sigma noise band, PB steps, rolling median and rolling bottom ten percent" style="color:var(--ink3)">'+
     ticks + band + dots + zeroMarks +
     '<path d="'+pb+'" fill="none" stroke="var(--best)" stroke-width="1.75" stroke-linecap="butt" stroke-linejoin="miter" vector-effect="non-scaling-stroke"/>'+
     '<path d="'+low+'" fill="none" stroke="var(--low)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>'+
     '<path d="'+med+'" fill="none" stroke="var(--med)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>'+
-    tradingEls +
     // Last, so the ring round the run you are reading sits on top of everything.
     '<circle class="sparkhl" r="5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0"/></svg>'+
     scaleNote(s, zeros.length) +
@@ -4752,7 +5051,6 @@ if(has('#showBenchProgChk')){
 
 $('#exWarmup').addEventListener('change', () => { excludeWarmup = $('#exWarmup').checked; render(); });
 $('#exRefam').addEventListener('change', () => { excludeRefam = $('#exRefam').checked; render(); });
-if(has('#tradingLines')) $('#tradingLines').addEventListener('change', () => { tradingLines = $('#tradingLines').checked; render(); });
 $('#sortby2').addEventListener('change', () => { $('#sortby').value = $('#sortby2').value; render(); });
 $('#cmClear').addEventListener('click', () => {
   setCmTab('off');
@@ -5103,7 +5401,12 @@ function wireFolderSetup(){
   } else {
     showFolderSetup(SERVER_CONFIG.folder ? SERVER_CONFIG.reason : '');
   }
-  setInterval(pollForNewRuns, 5000);
+  // config.json's scan_interval_seconds sets how often the server scans the
+  // folder AND how often this page asks it whether anything landed, so one
+  // line tunes the whole run-ended-to-on-screen delay. Bare file:// mode has
+  // no server config and keeps the old 5 s.
+  const pollSec = Number(SERVER_CONFIG && SERVER_CONFIG.scanInterval) || 5;
+  setInterval(pollForNewRuns, Math.round(Math.min(60, Math.max(0.1, pollSec)) * 1000));
 })();
 
 // ---------------------------------------------------------------------------
@@ -5473,6 +5776,50 @@ function selfTest(){
     t('earlyBaseline exposes n', eb.n, 60);
   }
   t('a flat (unimproving) series still fits, amplitude ~0', fitFamiliarisation(new Array(40).fill(500)).amplitude, 0, 1e-6);
+
+  // closestAvailable() / roughChange() / roughVsPrev(): the rough figure on a
+  // dead headline card. Cells are shaped like computeCells() output, with the
+  // session values given directly (one value = one session).
+  {
+    const mk = (scen, w, b) => ({scen, cluster: '40cm', wSess: stats(w, SESS_THRESH, true),
+      bSess: stats(b, SESS_THRESH, true), b: {n: b.length}});
+    const c1 = closestAvailable([mk('A', [100, 110, 120], [100])], 'typical', TUNING.TYPICAL_MIN_SESS, false);
+    t('rough typical: mean of 3 window sessions (110) vs 1 earlier (100) = +10%', c1.rough.pct, 10, 1e-9);
+    t('rough carries the per-side session counts', c1.rough.wn + '/' + c1.rough.bn, '3/1');
+    t('rough carries the two levels it was built from', c1.rough.wv + ' vs ' + c1.rough.bv, '110 vs 100');
+    t('short window: fraction is window sessions over the bar', c1.stage + ' ' + c1.have + '/' + c1.need, 'window 3/6');
+    const c2 = closestAvailable([mk('A', [120], [100])], 'ceiling', TUNING.CEILING_MIN_SESS, false);
+    t('rough ceiling with one session a side = +20% (hdQuantile of n=1 is the value)', c2.rough.pct, 20, 1e-9);
+    const c3 = closestAvailable([mk('A', [100, 110], [])], 'typical', TUNING.TYPICAL_MIN_SESS, false);
+    t('no earlier sessions: rough is null', c3.rough, null);
+    t('no earlier sessions: the window level is still there', c3.rw.n, 2);
+    // 6 vs 2 sessions: ratio 3 > N_MATCH_RATIO, the case where changeWithSE()
+    // would go through nMatchedHD's sampler. The rough figure must not.
+    const lop = [mk('A', [100, 102, 104, 106, 108, 130], [100, 120])];
+    const l1 = closestAvailable(lop, 'ceiling', TUNING.CEILING_MIN_SESS, false);
+    const l2 = closestAvailable(lop, 'ceiling', TUNING.CEILING_MIN_SESS, false);
+    t('rough ceiling is identical across two calls on lopsided sides (6 vs 2)', l1.rough.pct, l2.rough.pct, 0);
+    t('lopsided sides are flagged unbalanced', l1.balanced, false);
+    t('rough ceiling on lopsided sides = per-side hdQuantile ratio',
+      l1.rough.pct, (hdQuantile(l1.rw.sorted, TUNING.CEILING_Q) / hdQuantile(l1.rb.sorted, TUNING.CEILING_Q) - 1) * 100, 1e-9);
+    const wide = mk('A', [101, 102, 103, 104, 105, 106, 107, 108], [100]);
+    const c4 = closestAvailable([wide], 'ceiling', TUNING.CEILING_MIN_SESS, false);
+    t('window clears the bar: shortfall moves to the earlier side', c4.stage + ' ' + c4.have + '/' + c4.need, 'baseline 1/8');
+    t('baseline-stage cell still carries a rough change', c4.rough != null && c4.rough.pct > 0, true);
+    const c5 = closestAvailable([mk('B', [100, 110], [100]), mk('A', [100, 110], [100])], 'typical', TUNING.TYPICAL_MIN_SESS, false);
+    t('tied cells resolve by name', c5.scen, 'A');
+    t('closestAvailable().rough is keyed on the requested key', c5.key + ' ' + (c5.rough.pct.toFixed(3)), 'typical 5.000');
+    // Vs prev: same cell in both windows, now-minus-prev.
+    const now = [mk('A', [110, 120], [100]), mk('B', [200], [100]), mk('D', [100], [100])];
+    const prev = [mk('A', [105], [100]), mk('C', [100], [100]), mk('D', [100], [100])];
+    const rv = roughVsPrev(now, prev, null);
+    t('rough vs-prev picks a cell present in both windows (tie on depth → name)', rv.scen, 'A');
+    t('rough vs-prev = now rough (+15%) minus prev rough (+5%)', rv.pct, 10, 1e-9);
+    t('rough vs-prev prefers the cell the fraction already names', roughVsPrev(now, prev, 'D 40cm').scen, 'D');
+    t('rough vs-prev is null with no shared cell', roughVsPrev([mk('B', [200], [100])], prev, null), null);
+    t('rough vs-prev is null when the shared cell has no earlier sessions in one window',
+      roughVsPrev([mk('A', [110], [100])], [mk('A', [105], [])], null), null);
+  }
 
   const fails = R.filter(r => !r.ok);
   const fmtv = v => (typeof v === 'number' ? (Math.round(v * 1e6) / 1e6) : String(v));

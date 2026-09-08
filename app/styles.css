@@ -2,7 +2,6 @@
   --bg:#12130f; --surface:#1b1d17; --surface2:#232620; --line:#33362d;
   --ink:#eceade; --ink2:#a2a596; --ink3:#6f7266;
   --med:#4a9ee0; --low:#e08a3c; --best:#5fb98a;
-  --tophi:#d4b83c; --lowlo:#c46bd4; --raw:#8f97f2;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 }
@@ -170,7 +169,7 @@ tr:last-child td{border-bottom:none}
 .attribsub{font-size:11.5px;color:var(--ink3);margin-top:2px}
 .attribempty{font-size:13px;color:var(--ink3)}
 @media(prefers-color-scheme:light){
-  :root{--bg:#faf9f5;--surface:#fff;--surface2:#f2f1eb;--line:#dedcd2;--ink:#16170f;--ink2:#5f6156;--ink3:#8d8f83;--med:#2a78d6;--low:#c2661f;--best:#1b8f62;--tophi:#a3891f;--lowlo:#a13fb8;--raw:#4c56c9}
+  :root{--bg:#faf9f5;--surface:#fff;--surface2:#f2f1eb;--line:#dedcd2;--ink:#16170f;--ink2:#5f6156;--ink3:#8d8f83;--med:#2a78d6;--low:#c2661f;--best:#1b8f62}
   .err{background:#fdf0e6;border-color:#e8c4a0;color:#8a4b1c}
   .tabbtn.active{color:#fff}
 }
@@ -466,7 +465,13 @@ tr:last-child td{border-bottom:none}
   /* The session panel is a live readout, so it stays put while you scroll the
      scenario list. Only the panel, not the whole column: a sticky column taller
      than the viewport can never be scrolled to its own bottom, which would
-     leave the last two months of the calendar permanently out of reach. */
+     leave the last two months of the calendar permanently out of reach.
+     A sticky element can only travel inside its parent, and the grid's
+     align-items:start made the column exactly as tall as panel + calendar, so
+     the panel followed for the calendar's height and then scrolled away with
+     the rest. Stretching the column to the full row height lets it follow to
+     the bottom of the scenario list. The calendar stays in normal flow. */
+  .sidecol{align-self:stretch}
   .sidecol #sessionPanel{position:sticky;top:52px;z-index:2}
 }
 
@@ -566,6 +571,12 @@ tr:last-child td{border-bottom:none}
 /* A withheld figure and a withheld comparison. Both carry their reason in the
    tooltip, so they get the dotted underline that means "there is more here". */
 .nodata,.nocmp{color:var(--ink3);border-bottom:1px dotted rgba(255,255,255,.22);cursor:help}
+/* A withheld figure in the table says how far off it is: "5/8". The count you
+   have is the number worth reading; the threshold behind it is context. The
+   headline cards get that separation from .card .v .side, which does not reach
+   inside a table cell - and at 12px the card's .42em would be unreadable, so
+   this is the same intent at a size that survives. */
+.nodata .side{font-size:.85em;opacity:.72}
 
 /* Chart hover. Below the toast layers (9998/9999) - a celebration should never
    end up underneath a tooltip. */
@@ -582,3 +593,15 @@ tr:last-child td{border-bottom:none}
   border-radius:4px;padding:1px 4px;vertical-align:2px}
 .spark{cursor:crosshair}
 .sparkhl{transition:opacity .1s ease}
+
+/* Dead headline cards: the shortfall as a fraction in the number slot, and the
+   closest real reading under it. Both are deliberately quieter than a live
+   estimate — a provisional figure must not read as a measurement. The dotted
+   underline is the same "there's a reason behind this" idiom as .nocmp. */
+.card .vsub.prog{font-size:15px;font-weight:500;color:var(--ink3)}
+.card .vsub.prov{font-size:15px;font-weight:500;color:var(--ink3);border-bottom:1px dotted rgba(255,255,255,.22);cursor:help;display:inline-block;align-self:flex-start;max-width:100%;margin-top:2px}
+.cards.hero .card.big .vsub.prog,.cards.hero .card.big .vsub.prov{font-size:17px}
+.card .vsub.prov .provtag{opacity:.65;font-size:.85em;font-weight:500}
+/* The session rule under "N to go": what one session takes, so the count is
+   something the user can act on. Quieter than the count itself. */
+.card .vsub.prog.rule,.cards.hero .card.big .vsub.prog.rule{font-size:13px;opacity:.7}

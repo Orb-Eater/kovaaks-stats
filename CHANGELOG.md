@@ -5,6 +5,187 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.11.0 - 2026-09-08
+
+**TL;DR - the headline cards stop going blank. Where v0.10.0 replaced a bare
+`-` with a tooltip explaining the shortfall, the shortfall now sits in the
+number slot as a progress fraction, the card says exactly what a session
+takes (3+ runs, a 30+ minute break between sessions), and a rough change for
+the closest scenario you actually have sits underneath it - labelled rough,
+with the reasons on the hover. Plus a fix: "Vs prev timeframe" was computing
+its value and then discarding it on every custom date range. The Trading lines
+chart overlay is removed.**
+
+### Headline cards show what you have, not only what you're missing
+
+- v0.10.0 gave a blank card a reason ("needs 8+ sessions ... the closest
+  currently has 6") but left it in a hover, so the card itself still showed
+  nothing. The five cards that can go blank - Ceiling change, Typical change,
+  Floor change, Typical vs Ceiling and Vs prev timeframe - now show that
+  shortfall as a fraction (`6/8`, "sessions - 2 more to go") and hang the
+  closest available reading below it.
+- Every one of those cards now states what a session is, in the card itself:
+  "3+ runs per session - 30+ min break between sessions". Both numbers are the
+  session-split constants the real estimates already run on, not new ones. The
+  hover on the fraction spells the same rule out in a sentence, so "2 more to
+  go" is something you can act on rather than a count to guess at.
+- The reading is drawn from the single best-covered scenario/cm cell, chosen
+  by the identical rule the existing message uses, so the sentence and the
+  number can never describe different data. It is never pooled across cells:
+  averaging percentages from cells of very different reliability is exactly
+  the "worse number" this app declines to compute elsewhere.
+- Whenever that cell has at least one session on each side, the card shows a
+  *rough* change: that scenario's window-side level against its earlier level,
+  as a `%`, tagged `rough - 10,038 now vs 9,634 before` so the two numbers it
+  came from are visible beside it. It is deliberately without a confidence
+  interval and styled quieter than a live estimate, and its hover says what it
+  is: one scenario rather than your whole window, below the session bar, sides
+  not n-matched, not your rate of change. Only when the scenario has no
+  earlier session at all does the card fall back to the *level*, which claims
+  nothing about direction, with the hover saying why.
+- Typical vs Ceiling shows the rough typical change minus the rough ceiling
+  change of the same cell, with both halves on the tag. Vs prev timeframe
+  shows a rough figure only when the *same* scenario/cm cell exists in both
+  timeframes with a rough typical change on each; the figure is this window's
+  rough change minus the previous one's, both on the tag, and the scenario is
+  named on the line. One scenario's figure is never subtracted from another
+  scenario's.
+- On the Matched headline row, cells that already clear the session bar but
+  lean on a fitted familiarisation baseline get no fraction, because there is
+  no session shortfall there and "6 of 8" would be false.
+- Nothing about how the real estimates are computed or gated changed. The
+  relaxed minimums used for the rough reading are display-only and live
+  with the code that renders them, not beside the reliability thresholds.
+
+### Fixed: the rough `%` could change every time the screen redrew
+
+- An earlier draft of this release built the fallback change with
+  `changeWithSE`, which routes `typical` through a trimmed mean, deterministic,
+  but sends `ceiling` and `floor` through `nMatchedHD`, which subsamples the
+  larger side at random as soon as the two session counts differ by more than
+  `N_MATCH_RATIO`. A real estimate absorbs that jitter in the interval printed
+  beside it. A fallback has no interval, so the same card rendered twice showed
+  two different numbers with nothing to say which was right - and because the
+  Matched and All-cells rows draw the same cell independently, they disagreed
+  with each other on screen, in 24 of 25 renders on a 30-day window, ranging
+  over 30 distinct values from -21.6% to -26.5%.
+- Dropping the session minimum is precisely what leaves the two sides lopsided,
+  so this was the normal case for these cards, not an edge one. The rough
+  figure is now computed from the two per-side levels directly (per-side
+  trimmed mean or Harrell-Davis quantile, no subsampling), so it is the same
+  number on every render by construction, and it no longer has to be declined
+  when the sides are uneven. Where the sides are comparably covered it is
+  exactly the number `changeWithSE` returns, since the non-sampling branch of
+  `nMatchedHD` is the same per-side quantile. The real estimates are untouched.
+
+### Fixed: "Vs prev timeframe" labelled a previous-window reading as "now"
+
+- When the shortfall is in the previous window, this card's fallback reading is
+  drawn from that window's cells - but it was rendered with the same wording
+  every other card uses: "now", and "the sessions you have in this window".
+  Both were false. The scenario often has a different session count in the
+  displayed window, and in roughly half the observed cases it had not been
+  played there at all.
+- The reading stays - it is the closest available data, which is the point of
+  the card - and now says where it came from: tagged `prev`, described as "in
+  the previous timeframe". The progress line no longer offers "N to go" for a
+  window that has already closed, and the "Previous timeframe" heading no
+  longer sits above a sentence about "this window". The rough `%` on this card
+  is a separate, stricter pick (same scenario in both timeframes - see above),
+  so it can name a different scenario from the level; the line says which.
+
+### Fixed: the level line always gave the same reason, right or wrong
+
+- A level appears without a change for three different reasons, and the hover
+  asserted one of them unconditionally: "not enough to state a direction". On
+  the "Vs prev timeframe" card that contradicted the Typical card directly
+  above, which was stating a direction from the very same cell. Each case now
+  states its own reason - no earlier session of that scenario at all, or a
+  comparison that spans two timeframes and so has no single percent to give.
+- Levels are also no longer rounded to whole numbers. Scores here span roughly
+  1 to 5000; rounding is right at the top of that range and destroys the number
+  at the bottom, where a floor of 3.554 was printed as "4".
+- Where two candidate cells tie on the session count used to rank them, the one
+  that also has sessions on the other side is now preferred, since only that
+  one can carry a change; the name still breaks a remaining tie so the choice
+  stays deterministic.
+
+### Fixed: "Vs prev timeframe" was blank on every custom date range
+
+- The value was computed whenever a previous window existed, but the card was
+  shown only when a preset window was selected. On a custom range the number
+  was calculated and then thrown away, so the card always read `-`.
+
+### Fixed: the caveat under a scenario said rows were shown that weren't
+
+- `scenCaveats()` wrote one sentence for every figure sitting below its
+  minimum: those rows "are shown from fewer sessions than the reliability
+  bar". That is true of a row that still prints a number and false of one that
+  was withheld entirely - the sentence pointed at something the reader could
+  not see. It now splits the missing rows by whether the figure actually
+  printed: all-shown keeps the original wording, all-withheld says they are
+  withheld, and a mix names which rows are which.
+
+### Fixed: a comparison branch that could never be taken
+
+- The headline's "vs" wording chose between `ceiling` and `typical`, but the
+  `typical` arm was unreachable. Ceiling gates at 8 sessions and typical at 6
+  on the *same* session array, so a ceiling change implies a typical change,
+  and the fallback baseline is available to both or neither; the condition
+  guarding the arm has no solution. Dead code that reads as a live choice is a
+  claim about the app that is not true, so the branch is gone and `'ceiling'`
+  is inlined. The reasoning is recorded where it was removed.
+
+### Withheld rows in the scenario table say how far off they are
+
+- A row below its session minimum showed nothing but a tooltip. It now carries
+  the same have/need fraction the headline cards use - `5/8`, with the
+  threshold de-emphasised - and the tooltip counts the sessions still needed
+  rather than only naming the bar. The two are the same fact by construction:
+  a figure is withheld exactly when the session count is under the minimum.
+
+### Removed: Trading lines
+
+- The chart overlay toggle - two trendlines from your first run to your
+  all-time best and worst, projected across the chart with their angles
+  labelled, plus a raw run-to-run line - is gone. The checkbox, the drawing
+  code, the legend entries and the three colour variables nothing else used
+  are all removed. It shipped in v0.9.0 and v0.10.0 without a changelog entry
+  and leaves the same way it arrived: no option, no visual.
+
+---
+
+### Session panel follows you down the page
+
+- On a two-column layout (1500px and wider) the Session panel was sticky in
+  name only: it followed for about the height of the calendar underneath it,
+  then scrolled away with everything else. A sticky element can only travel
+  inside its parent, and the sidebar column was only as tall as its own two
+  panels. The column now stretches to the full height of the scenario list, so
+  the panel stays in view all the way down. The calendar is unchanged.
+
+### `scan_interval_seconds` accepts decimals and drives the page too
+
+- `config.json` already had `scan_interval_seconds`, but it was rounded down to
+  a whole number (so `0.5` became `0`, a busy loop) and only set how often the
+  *server* looked at the stats folder. The page still asked the server every
+  5 seconds regardless, so a 1-second scan bought nothing on screen.
+- The same line now sets both halves: `1` means the folder is scanned once a
+  second and the page checks once a second, so a run shows up within about
+  2 seconds of its CSV landing instead of up to 10. Decimals work (`0.5`),
+  and the value is clamped to 0.1-60 so a typo cannot spin the server.
+- The server used to read `config.json` once, at startup, so editing the
+  interval while it was running did nothing until the next restart - easy to
+  mistake for the setting being ignored. The watcher now notices when
+  `config.json` is saved, picks up the new interval on its next tick and
+  prints what it switched to. Only this key reloads live; the port and the
+  stats folder still need a restart. The page reads its poll rate once, at
+  load, so reload the tab after changing it.
+- For scale: an idle scan of a 22,000-file stats folder takes about 40 ms.
+  At the default 5 s that is under 1% of one core, at 1 s about 4%, at 0.25 s
+  about 17%. The server does not touch the disk on an idle scan - the folder
+  listing comes from the NTFS metadata cache - so this is CPU only.
+
 ## v0.10.0 - 2026-09-04
 
 **TL;DR - a fix batch on top of the v0.9.0 rework: the new stats engine's
@@ -227,11 +408,11 @@ reach GitHub by any mechanism.**
 
 ### `HANDOFF.md` moved out of the repo folder
 
-- **It now lives at `L:\Claude\HANDOFF.md`**, one level above `KovaaksStats`,
-  instead of being merely `.gitignore`d from inside it. Being outside the repo
-  folder is a structural guarantee that no `git add`, publish step or future
-  change to `.gitignore` can accidentally reach it - being gitignored inside
-  the repo only ever relied on nobody force-adding it.
+- **It now lives one level above the `KovaaksStats` folder**, outside the repo
+  entirely, instead of being merely `.gitignore`d from inside it. Being outside
+  the repo folder is a structural guarantee that no `git add`, publish step or
+  future change to `.gitignore` can accidentally reach it - being gitignored
+  inside the repo only ever relied on nobody force-adding it.
 - `release.py` and `publish.py` no longer reference it at all.
 
 ---

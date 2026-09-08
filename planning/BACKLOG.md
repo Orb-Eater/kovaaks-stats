@@ -261,7 +261,7 @@ Requested mid-flight, shipped ahead of Batch 9. Full detail in `CHANGELOG.md`.
 
 - [x] Benchmarks tab renamed **Scenario testing**, carrying Viscose Benchmarks
       S2 (Medium / Hard / Expert, 39 scenarios each). matty rank dropped.
-- [x] Dev stats folder moved to `L:\Claude\Kovaaks Folder\stats`.
+- [x] Dev stats folder moved outside the repo folder.
 - [x] One-time "turn on Log every run" offer; restart counter hidden while the
       setting is off rather than showing a permanent zero.
 
@@ -386,8 +386,8 @@ browser.
       played, Name. Since the sort choice isn't persisted, this also changes
       the page's default sort on load, from Most played to Recently played.
       — *v0.7.2*
-- [x] **`HANDOFF.md` moved to `L:\Claude\HANDOFF.md`**, outside the repo
-      folder, instead of being `.gitignore`d from inside it — a structural
+- [x] **`HANDOFF.md` moved one level above the repo folder**, outside it
+      entirely, instead of being `.gitignore`d from inside it — a structural
       guarantee rather than a convention. `release.py` and `publish.py` no
       longer reference it. — *v0.7.2*
 
@@ -512,7 +512,7 @@ shipped difficulties now come from your CSV export with 39 scenarios each.
   v0.7.2 also published as GitHub `beta` (pre-release); v0.3.1 stays `base`
   ("Latest") until promoted. The rule itself isn't repealed — it applies again
   from here unless told otherwise.
-- **Dev stats folder** → moved to `L:\Claude\Kovaaks Folder\stats` (21,453 runs).
+- **Dev stats folder** → moved outside the repo folder (21,453 runs).
 - **Log-every-run suggestion** → yes, shown once when the setting is off, with the
   clutter trade-off stated; dismissed forever with one click; remembered per
   build. The restart counter is hidden entirely while the setting is off, rather

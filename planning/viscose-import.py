@@ -6,7 +6,8 @@ Build app/data/benchmarks.json from the Viscose Benchmarks S2 sheets.
     python planning/viscose-import.py --write    # write it
 
 Source: the "score targets viscose benchmarks s2 draft" CSV export, one file per
-difficulty. Set VISCOSE_DIR below, or pass --dir.
+difficulty. Defaults to a Benchmarks/ folder beside the repo; override with
+$VISCOSE_DIR or --dir.
 
 This replaces the previous 216-benchmark dataset outright rather than merging.
 That dataset included a Viscose S2 Medium built from a malformed JSON file that
@@ -40,7 +41,10 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VISCOSE_DIR = r"L:\Claude\Benchmarks\Viscose s2\csv"
+# Beside the repo, not an absolute path: this file is public, and a drive
+# letter here is personal as well as wrong on any other machine.
+VISCOSE_DIR = os.environ.get("VISCOSE_DIR") or os.path.join(
+    os.path.dirname(ROOT), "Benchmarks", "Viscose s2", "csv")
 OUT = os.path.join(ROOT, "app", "data", "benchmarks.json")
 
 # Difficulty -> (file suffix, benchmark name). Easier is deliberately not

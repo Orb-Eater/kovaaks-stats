@@ -730,9 +730,57 @@ def native_pick_folder():
                   "the path into the box below instead - it works exactly the same.")
 
 
+def scan_interval():
+    """config.json's scan_interval_seconds, as the watcher and the page use it.
+
+    Decimals are fine (0.5 = twice a second). The floor stops a 0 or a typo
+    from turning the watcher into a busy loop; the ceiling stops a stray
+    3600 from looking like the app has stopped noticing runs. An idle scan
+    of a 22k-file folder costs ~40 ms of CPU and no disk (the listing comes
+    from the NTFS metadata cache), so 1 s is ~4% of one core.
+    """
+    try:
+        v = float(CONFIG.get("scan_interval_seconds", 5))
+    except (TypeError, ValueError):
+        v = 5.0
+    if v != v:  # NaN
+        v = 5.0
+    return min(60.0, max(0.1, v))
+
+
 def watcher(index, interval):
+    """Scan the folder every `interval` seconds.
+
+    config.json is re-read whenever its timestamp changes, so
+    scan_interval_seconds can be tuned while the server runs: edit, save,
+    and the console says what it switched to. Only that one key is picked
+    up live - the port and the stats folder cannot move under a running
+    server, and everything else is read once at startup.
+    """
+    def config_mtime():
+        try:
+            return os.path.getmtime(CONFIG_PATH)
+        except OSError:
+            return None
+
+    seen = config_mtime()
     while True:
         time.sleep(interval)
+        mt = config_mtime()
+        if mt != seen:
+            seen = mt
+            try:
+                with open(CONFIG_PATH, encoding="utf-8") as f:
+                    raw = json.load(f).get("scan_interval_seconds", 5)
+            except Exception as e:
+                print("! config.json changed but is unreadable (%s); still scanning every %gs"
+                      % (e, interval))
+            else:
+                CONFIG["scan_interval_seconds"] = raw
+                new = scan_interval()
+                if new != interval:
+                    print("+ config.json changed: scanning every %gs (was %gs)" % (new, interval))
+                    interval = new
         try:
             index.scan()
         except Exception as e:
@@ -790,6 +838,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({
                 "appVersion": APP_VERSION,
                 "port": int(CONFIG.get("port", 0)),
+                "scanInterval": scan_interval(),
                 "folder": idx.folder,
                 "valid": ok,
                 "reason": why,
@@ -937,7 +986,7 @@ def main():
             print("  no stats folder set - choose one in the app when it opens")
 
     Handler.index = index
-    interval = int(CONFIG["scan_interval_seconds"])
+    interval = scan_interval()
     threading.Thread(target=watcher, args=(index, interval), daemon=True).start()
 
     port = int(CONFIG["port"])
@@ -963,7 +1012,7 @@ def main():
     url = "http://127.0.0.1:%d/" % port
     print("+ serving %s" % url)
     print("  full app: %s   simple: %ssimple.html" % (url, url))
-    print("  watching for new runs every %ss - Ctrl+C to stop" % interval)
+    print("  watching for new runs every %gs - Ctrl+C to stop" % interval)
     log_startup("serving %s" % url)
     # Restarting the server repeatedly used to pile up identical tabs. Python
     # cannot ask a browser to focus an existing tab, so instead: only auto-open

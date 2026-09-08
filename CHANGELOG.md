@@ -5,6 +5,113 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## v0.12.0 - 2026-09-09
+
+**TL;DR - four files in your stats folder were not runs, and three of them were
+being counted. Two ways to not finish a run were invisible to the existing
+detection: a file KovaaK's writes when no challenge was loaded at all, and
+quitting from the pause menu, which reports the whole time you sat there as the
+run's length - 505 seconds on a 60 second scenario. Both are excluded now. On
+the scenario that had them, CV drops from 15.99% to 9.75%. Separately,
+"Recently played" was hiding 199 of the 714 scenarios you had actually played,
+because it was built from the same runs the measurements are.**
+
+### Two more ways a run never finished, both now excluded
+
+- Since v0.1.0 a restart has been detected by comparing `Challenge Start` in the
+  stats file against the filename's timestamp: a run that ended within half a
+  second of starting never happened. That rule is unchanged and still right. It
+  is just not the only case.
+- **A file with no challenge loaded.** Three files out of 22,347 carry a blank
+  `Scenario:`, a blank `Hash:`, `Challenge Start:,00:00:00.000`, no `Avg FPS`
+  and no ` - Challenge - ` in the filename. KovaaK's wrote a stats file for an
+  attempt that had nothing loaded. Because the start time is midnight, their
+  elapsed measurement is nonsense rather than zero, so the restart rule cannot
+  see them at all - and they still carry a score, so nothing downstream could
+  tell they were not runs. Two of the three were feeding every calculation; the
+  third was hidden only by luck, because it happened to fall inside a warm-up
+  window.
+- They are detected on the blank `Hash` field, which is structural rather than a
+  judgement about the score. A *missing* Hash line means an older KovaaK's build
+  that never wrote one and is not the signal; only a line that is present and
+  empty counts. All 22,347 files here have the line.
+- **Quitting from the pause menu.** KovaaK's records `Pause Duration` only once
+  you *resume*, so a run abandoned while paused reports the entire wall clock
+  you spent in the menu as its elapsed time. One run here reads 505 seconds on a
+  60 second scenario. Neither the restart rule nor the frame rate can see it.
+- Pause duration is now read from the file, and the client measures each run's
+  actual play time - elapsed minus pause - against its own scenario. Most
+  scenarios are fixed-length, so their play times have a mode nearly every run
+  sits on; a run far off that mode did not finish. A scenario qualifies only
+  with 20+ runs and 90% of them within 2 seconds of the mode, and a run must
+  then miss by more than 20% of the scenario's length, so a scenario whose
+  author changed its duration cannot have its old runs called aborts. Across
+  223 qualifying scenarios and 12,959 runs this flags exactly one run: that
+  file.
+- **Why not use `Avg FPS` instead**, as the obvious "this file is broken"
+  signal: it was measured, and it is not better. Missing/zero/absurd FPS marks
+  47 runs, the restart rule marks 45, and they overlap on 44. FPS finds two of
+  the no-challenge files, which is real, but it misses a genuine restart the
+  timing rule catches, and the field is not guaranteed across KovaaK's builds.
+  The blank `Hash` signature finds the same files without either drawback, so
+  that is what shipped. The two rules stay separate and complementary.
+- A zero-scoring run is still a real run - a NeverMiss first-shot miss - and is
+  still drawn as a hollow mark on the axis floor, out of the percentages. That
+  behaviour is from v0.2.0 and is unchanged.
+- Effect on the affected scenario, over its full history with warm-up excluded:
+  typical (trimmed mean) 10299.2 -> 10333.5, floor (p10) 8752.5 -> 8811.0, and
+  **CV 15.99% -> 9.75%**. CV feeds the required-sample-size and "powered"
+  checks, so this was distorting more than the visible numbers.
+- Scenario CSV exports now carry `pause_s` and `aborted` alongside `reset`, so
+  an export can be checked against what the charts actually drew.
+
+### Fixed: the new field would have shipped empty
+
+- The API rebuilds each row column by column and had no slot for the added one,
+  so pause duration would have parsed correctly on disk and then arrived at the
+  browser as nothing, with no error anywhere. Caught before release by checking
+  the served payload rather than the parser.
+
+### "Recently played" lists what you played, not what was measured
+
+- The list was built from the same pool as the measurements, so a scenario whose
+  only runs in the window were warm-up or re-familiarisation had no card at all.
+  On a 30-day window that hid **199 of the 714 scenarios** actually played - the
+  first two or three runs of a session, which is exactly what "recently played"
+  is for.
+- The view now has its own pool. Restarts and unfinished attempts are still
+  excluded, and every calculation on the page is untouched: the warm-up and
+  re-familiarisation toggles do precisely what they did before to every number.
+  515 of 714 scenarios had a card; 708 do now.
+- The 201 cards that exist only because of this say so, with a
+  "warm-up / re-fam runs only" marker: their numbers come from exactly the runs
+  the rest of the page is ignoring, so the card states that rather than looking
+  like any other card.
+- Sorting uses the last run you actually played, including the hidden ones -
+  otherwise a scenario whose newest runs are all warm-up would sort by an older
+  date than the one printed on its own card.
+- The six scenarios still absent are removed by the cm outlier filter, not by
+  this: every run they have in the window sits at a cm value with too few runs
+  to cluster. That is the sensitivity toggle working as intended, and turning it
+  off shows them.
+
+### Checked, no change: the warm-up and re-familiarisation toggles
+
+- Reported as having no visible effect on the scenario graphs. They do work -
+  toggling them moves dot counts live - but the effect is genuinely small: on
+  33 of the 105 scenarios with 10+ runs in a 30-day window the toggles move
+  **zero** runs, because no warm-up or re-familiarisation run exists there at
+  all, and on the largest cards it is 3-6% of the dots, 2 to 5 out of 70 to 110.
+  Median across the scenarios that move at all is 14.3%. Nothing is broken; the
+  effect is concentrated in scenarios played once at the start of a session,
+  which are the small cards.
+
+### First start after updating is slow, once
+
+- The stored row format changed to carry pause duration, so the cache is
+  re-parsed from your stats folder on first launch. Roughly 22,000 files here.
+  Subsequent starts are normal.
+
 ## v0.11.0 - 2026-09-08
 
 **TL;DR - the headline cards stop going blank. Where v0.10.0 replaced a bare

@@ -46,7 +46,8 @@ PORT_LO, PORT_HI = 20000, 60000
 # function rather than just saying the file differs.
 STAT_FUNCS = [
     "stats", "computeCells", "overallOf", "changeWithSE", "annotateRuns",
-    "runUsable", "quantileAt", "quantileSE", "trimSlice", "trimmedMean",
+    "runUsable", "runReal", "markAborts", "quantileAt", "quantileSE",
+    "trimSlice", "trimmedMean",
     "trimmedMeanSE", "requiredN", "computeTrends", "computeTrendSeries",
     "computeCmClusters", "computeCmDeltas", "getActivePool", "chartScale",
 ]
@@ -67,9 +68,16 @@ def content_root(folder):
     """Where server.py/app/config.json/etc actually live inside `folder`.
 
     A frozen release nests them under internal/ (Batch 11); the working copy
-    (`folder == ROOT`) has no such subfolder and stays flat."""
+    (`folder == ROOT`) has no such subfolder and stays flat.
+
+    The test is server.py, not the folder: running a release-shaped start.bat
+    from the source tree leaves behind an internal/ holding only a config and a
+    log folder, and treating that as the content root made build_hash(ROOT) hash
+    nothing at all - so --verify printed an empty `dev` row and quietly stopped
+    answering the one question it exists for. start.bat and install.bat already
+    auto-detect on the same file."""
     inner = os.path.join(folder, "internal")
-    return inner if os.path.isdir(inner) else folder
+    return inner if os.path.isfile(os.path.join(inner, "server.py")) else folder
 
 
 def existing_versions():

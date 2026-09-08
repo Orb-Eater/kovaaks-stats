@@ -139,6 +139,21 @@ const TUNING = {
   RESET_RATIO_ALERT: 5,     // restarts per completed run before it says something
   RESET_ALERT_MIN_RUNS: 3,  // ...but not until this many runs were actually finished
 
+  // A restart is not the only way to not finish a run. Quitting from the pause
+  // menu writes a stats file whose elapsed time is the whole wall clock you spent
+  // paused, and KovaaK's only counts a pause in Pause Duration once you RESUME it,
+  // so that time is invisible: one run here reads 505s on a 60s scenario. Neither
+  // the Challenge Start rule nor Avg FPS can see it. What can: most scenarios are
+  // fixed-length, so their own play time (elapsed minus pause) has a mode that
+  // nearly every run sits on, and a run far off it did not finish. Measured across
+  // 22,339 runs, this flags exactly one - the 505s file. See markAborts().
+  ABORT_MIN_RUNS: 20,       // fewer runs than this and the mode is not a profile
+  ABORT_TOL_SEC: 2,         // +-this many seconds still counts as on the mode
+  ABORT_FIXED_SHARE: 0.90,  // ...and this share must sit there, or it is not fixed-length
+  // A run must also miss by this fraction of the scenario's length, so a scenario
+  // whose author changed its duration cannot have its old runs called aborts.
+  ABORT_TOL_FRAC: 0.20,
+
   // Below this % of a session actually spent playing, a popup flags it once
   // per session (Batch 8) — but not before the session is long enough for the
   // ratio to mean anything; a two-run session reads noisy either way.
@@ -267,11 +282,13 @@ window.addEventListener('unhandledrejection', e => logMsg('unhandled promise rej
 
 // Runs travel as a scenario-name dictionary + rows so 20k+ runs stay small.
 function unpackRuns(p){
-  // a[6] is the reset flag. Older caches predate it, so treat a missing value as
-  // "not a reset" rather than dropping the run.
+  // a[6] is the reset flag, a[7] the seconds spent paused and resumed. Older
+  // caches predate both, so treat a missing a[6] as "not a reset" rather than
+  // dropping the run, and a missing a[7] as no pause - which is what it was
+  // before the field was read, and leaves markAborts() measuring raw elapsed.
   return p.rows.map(a => ({scen: p.names[a[0]], date: new Date(a[1]), score: a[2],
                            cm360: a[3], sensScale: a[4], dur: a[5] == null ? null : a[5],
-                           reset: a[6] === 1}));
+                           reset: a[6] === 1, pause: a[7] == null ? 0 : a[7]}));
 }
 
 const TS = /(\d{4})[.\-](\d{2})[.\-](\d{2})[-_ ](\d{2})[.:](\d{2})[.:](\d{2})/;
@@ -719,6 +736,44 @@ function requiredN(cv){
 }
 
 // ---------------------------------------------------------------------------
+// Runs that never finished, beyond the restarts server.py already catches.
+//
+// Play time is elapsed minus the time spent paused-and-resumed. For a
+// fixed-length scenario that number is the scenario's length on essentially
+// every completed run, so its mode IS the length - no scenario metadata needed,
+// and no assumption that 60s is normal. A scenario only gets a profile once
+// ABORT_MIN_RUNS runs agree to ABORT_FIXED_SHARE within ABORT_TOL_SEC; anything
+// looser (a variable-length or freeplay scenario) is left alone entirely, which
+// is why widening the tolerance makes this worse rather than better - it lets
+// scenarios in that have no fixed length to be off.
+//
+// Deliberately client-side rather than in the parser: it is a judgement made by
+// comparing runs to each other, not a fact about one file, and keeping it here
+// means retuning it never needs the disk cache re-parsed.
+// ---------------------------------------------------------------------------
+function markAborts(){
+  const byScen = {};
+  RUNS.forEach(r => {
+    r.abort = false;
+    // A restart has no usable duration and is already excluded; a run with no
+    // duration at all cannot be measured against anything.
+    if(!r.reset && r.dur != null) (byScen[r.scen] ||= []).push(r);
+  });
+  Object.values(byScen).forEach(rs => {
+    if(rs.length < TUNING.ABORT_MIN_RUNS) return;
+    const play = r => Math.round(r.dur - (r.pause || 0));
+    const counts = new Map();
+    rs.forEach(r => { const p = play(r); counts.set(p, (counts.get(p) || 0) + 1); });
+    let mode = null, best = -1;
+    counts.forEach((c, p) => { if(c > best){ best = c; mode = p; } });
+    const near = rs.filter(r => Math.abs(play(r) - mode) <= TUNING.ABORT_TOL_SEC).length;
+    if(near / rs.length < TUNING.ABORT_FIXED_SHARE) return;   // not fixed-length
+    const cut = Math.max(TUNING.ABORT_TOL_SEC, mode * TUNING.ABORT_TOL_FRAC);
+    rs.forEach(r => { if(Math.abs(play(r) - mode) > cut) r.abort = true; });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Warmup + re-familiarisation tagging (STATISTICS.md §3.1, §3.2)
 // RNG is unbiased and averages out; these two are biased and do not, so they
 // get excluded rather than modelled. Runs are tagged once on load and filtered
@@ -730,6 +785,7 @@ function requiredN(cv){
 // rather than a precise start-to-start measurement.
 // ---------------------------------------------------------------------------
 function annotateRuns(){
+  markAborts();
   let prevT = null, sessionStart = null, sessId = -1;
   RUNS.forEach(r => {
     if(prevT === null || (r.date - prevT) > TUNING.SESSION_GAP_MIN*60000){ sessionStart = r.date; sessId++; }
@@ -771,7 +827,9 @@ function buildSessions(){
   });
   out.forEach(s => {
     s.spanSec = Math.max(0, (s.end - s.start)/1000);
-    const durs = s.runs.map(r => r.dur).filter(v => v != null);
+    // An aborted run's elapsed time is wall clock spent in the pause menu, not
+    // play - counting it would put more play in the session than it had.
+    const durs = s.runs.filter(r => !r.abort).map(r => r.dur).filter(v => v != null);
     s.playSec = durs.reduce((a,b)=>a+b, 0);
     s.durCoverage = s.runs.length ? durs.length / s.runs.length : 0;
     // Idle needs the run itself excluded, so span alone would overstate playing.
@@ -780,7 +838,7 @@ function buildSessions(){
     s.scens = new Set(s.runs.map(r => r.scen)).size;
     // Resets belong here even though they are barred from the statistics: how
     // often you bail out of a run is a fact about the session, not about skill.
-    s.resets = s.runs.filter(r => r.reset).length;
+    s.resets = s.runs.filter(r => !runReal(r)).length;
     s.completed = s.runs.length - s.resets;
     s.resetRatio = s.completed > 0 ? s.resets / s.completed : null;
     // Longest run of restarts with no completed run between them. "Resetting
@@ -789,7 +847,7 @@ function buildSessions(){
     let streak = 0;
     s.maxResetStreak = 0;
     s.runs.forEach(r => {
-      streak = r.reset ? streak + 1 : 0;
+      streak = runReal(r) ? 0 : streak + 1;
       if(streak > s.maxResetStreak) s.maxResetStreak = streak;
     });
   });
@@ -854,21 +912,28 @@ function lowActiveDiagnosis(s){
     'in case you meant to be heads-down.';
 }
 
-// Two different questions, deliberately separated.
+// Three different questions, deliberately separated.
+//
+// runReal - "did this attempt run to the end?" A restart (server.py's timing
+//   rule, or a file with no challenge context at all) and an abandoned run
+//   (markAborts) both fail. Their scores are whatever had accumulated at the
+//   moment you stopped, so they are not measurements of anything. Excluded
+//   unconditionally - no toggle brings them back, unlike warmup and
+//   re-familiarisation, which are real runs you choose to set aside.
 //
 // runVisible - "did you actually play this run?" Drives charts and run counts.
-//   A reset is the only thing that fails here: an abandoned attempt is not a run
-//   you played, and its score is whatever you had accumulated at the moment you
-//   pressed restart. Excluded unconditionally, unlike warmup and
-//   re-familiarisation, which are toggles.
+//   Everything real, minus whichever of the two toggles is on.
 //
 // runUsable - "may this run enter a percentage?" Everything visible, minus
 //   zero-score runs. On a NeverMiss a zero means the first shot missed: a real
 //   run, worth seeing on the chart, but it measures the moment you lost rather
 //   than a level of performance, and averaging it in drags the floor down for a
 //   reason that has nothing to do with skill. 176 of them across this history.
+function runReal(r){
+  return !r.reset && !r.abort;
+}
 function runVisible(r){
-  if(r.reset) return false;
+  if(!runReal(r)) return false;
   if(r.excl === 'warmup') return !excludeWarmup;
   if(r.excl === 'refam') return !excludeRefam;
   return true;
@@ -1447,6 +1512,10 @@ function getActivePool(){
   // the charts only. A NeverMiss zero is a real run and you should be able to
   // see it happened - it just must not pull an average down.
   let cmFilteredBase = RUNS.filter(runVisible);
+  // The same set with the warm-up / re-familiarisation exclusions lifted, and
+  // only ever used to fill in the "Recently played" card list (see recencyPool
+  // below). It never reaches a percentage.
+  let recencyBase = RUNS.filter(runReal);
   if(hasCmData && $('#cmOutlier').checked){
     const counts = {};
     RUNS.forEach(r => { if(r.cm360!=null){ const b=Math.round(r.cm360); counts[b]=(counts[b]||0)+1; } });
@@ -1455,7 +1524,11 @@ function getActivePool(){
     Object.entries(counts).forEach(([b,c]) => { if(c < TUNING.OUTLIER_MIN_RUNS || c/total < TUNING.OUTLIER_MIN_SHARE) bad.add(+b); });
     // NB: filter the already warmup/refam-filtered list, not RUNS — rebuilding
     // from RUNS here silently threw those exclusions away.
-    if(bad.size) cmFilteredBase = cmFilteredBase.filter(r => r.cm360==null || !bad.has(Math.round(r.cm360)));
+    if(bad.size){
+      const keptCm = r => r.cm360==null || !bad.has(Math.round(r.cm360));
+      cmFilteredBase = cmFilteredBase.filter(keptCm);
+      recencyBase = recencyBase.filter(keptCm);
+    }
   }
 
   const cmFilter = list => {
@@ -1483,6 +1556,11 @@ function getActivePool(){
   // so treat its length as the comparison span.
   const spanDays = Math.max(1, Math.round((windowEnd - windowStart)/864e5));
   return {days, custom, spanDays, pool, displayPool,
+          // Same cm filtering and the same zero-score rule as `pool`, so a card
+          // built from it is built the same way - the warm-up and
+          // re-familiarisation toggles are the only difference. "Recently played"
+          // is the sole consumer.
+          recencyPool: cmFilter(recencyBase).filter(r => r.score > 0),
           cmAnalysisPool: cmFilteredBase.filter(r => r.score > 0),
           windowStart, windowEnd, hasCmData};
 }
@@ -1490,7 +1568,8 @@ function getActivePool(){
 function render(){
   const minRuns = +$('#minruns').value;
   const cmpMode = $('#cmp').value;
-  const {days, custom, spanDays, pool, displayPool, cmAnalysisPool, windowStart, windowEnd, hasCmData} = getActivePool();
+  const {days, custom, spanDays, pool, displayPool, recencyPool,
+         cmAnalysisPool, windowStart, windowEnd, hasCmData} = getActivePool();
   // A custom range CAN use a previous-window baseline (the equally long span
   // before it); only "All" has nothing earlier to compare against.
   const hasPrevWindow = days > 0 || custom;
@@ -1637,16 +1716,43 @@ function render(){
   });
 
   // "Recently played" is a "what did I just do" view, not a "what can be
-  // calculated" view - a scenario played yesterday but too few times yet to
-  // clear minRuns would otherwise vanish from its own recency sort. Pull in
-  // anything computeTrends would normally drop for being under minRuns, but
-  // only for this sort and only for the card list, not the headline stats
-  // (which stay on `rows` exactly as before).
+  // calculated" view, so two different things have to be pulled back into it.
+  //
+  // 1. Scenarios computeTrends kept but minRuns dropped - played yesterday, not
+  //    yet often enough to measure.
+  // 2. Scenarios that never reached computeTrends at all, because every run they
+  //    have in this window was a warm-up or re-familiarisation run. Those
+  //    exclusions exist to keep biased scores out of a MEASUREMENT; a recency
+  //    list is not one, and the first two or three runs of a session vanishing
+  //    from "what did I just play" is simply wrong about the one thing the view
+  //    is for. 199 of the 715 scenarios played in the last 30 days were missing
+  //    this way before this existed.
+  //
+  // Both are for this sort and this card list only. `rows` - and every headline
+  // number computed from it - is untouched, and so is what those toggles do
+  // everywhere else on the page.
   let displayRows = rows;
   if(sortBy==='recent'){
     const already = new Set(rows.map(r => r.scen));
     const extra = rowsAll1.filter(r => !already.has(r.scen));
-    displayRows = rows.concat(extra).sort((a,b) => lastAt(b) - lastAt(a));
+    extra.forEach(r => already.add(r.scen));
+    const missing = recencyPool.filter(r => !already.has(r.scen));
+    const extra2 = missing.length
+      ? computeTrends(missing, windowStart, windowEnd, effCmpMode, 1, analysisClusters, missing)
+      : [];
+    // Flagged so the card can say why it is here — see viewNote below.
+    extra2.forEach(r => { r.viewOnly = true; });
+    // Recency has to mean the last run you actually played, including the ones
+    // the toggles hide - otherwise a scenario whose newest runs are all warm-up
+    // sorts by an older date than the one the card shows.
+    const lastPlayed = new Map();
+    recencyPool.forEach(r => {
+      if(r.date < windowStart || r.date > windowEnd) return;
+      const t = +r.date;
+      if(!(lastPlayed.get(r.scen) >= t)) lastPlayed.set(r.scen, t);
+    });
+    const recentAt = r => lastPlayed.has(r.scen) ? lastPlayed.get(r.scen) : +lastAt(r);
+    displayRows = rows.concat(extra, extra2).sort((a,b) => recentAt(b) - recentAt(a));
   }
 
   const pctStr = v => v===null ? '—' : (v>=0?'+':'') + v.toFixed(1) + '%';
@@ -2236,6 +2342,13 @@ function render(){
       : (pinMissed
           ? ' · <span class="cmpin miss" title="Nothing at '+pinCm+'cm inside this window, so the card is showing every cm. Click to clear.">no '+pinCm+'cm runs here ✕</span>'
           : ' · <span class="cmpin" title="This card only — everything else on the page is untouched. Click to show every cm again.">'+pinCm+'cm only ✕</span>');
+    // Only ever set on the cards "Recently played" pulls back in because every
+    // run they have here was set aside — see rule 2 above. Their numbers come
+    // from exactly the runs the rest of the page is ignoring, so the card says
+    // so instead of looking like any other card.
+    const viewNote = r.viewOnly
+      ? ' · <span class="cmpin miss" title="Every run this scenario has in this window was a warm-up or a re-familiarisation run, so it is not in the measurements above and would not normally have a card. It is here because you played it, and this list is sorted by what you played.">warm-up / re-fam runs only</span>'
+      : '';
     // Offered whenever the scenario has been played at more than one
     // sensitivity at all. Whether there is enough of each to compare is the
     // panel's job to say, and saying it is more use than a missing button.
@@ -2261,7 +2374,7 @@ function render(){
       (SERVER_MODE ? '<button type="button" class="minibtn exportBtn" data-scen="'+esc(key)+'">Export data</button>' : '')+
       '</h3>'+
       '<p class="meta">'+v.st.n+' runs'+(v.zeroRuns ? ' <span class="zerotag" title="Runs that scored 0 — a NeverMiss that ended on the first shot, for example. Drawn on the chart, never counted in a percentage.">+'+v.zeroRuns+' scored 0</span>' : '')+' · spread '+fmt(v.st.cv)+'% · last played '+v.rs[v.rs.length-1].date.toISOString().slice(0,10)+
-      (v.cells.length>1 ? ' · '+v.cells.length+' cm cells' : '')+pinNote+'</p>'+
+      (v.cells.length>1 ? ' · '+v.cells.length+' cm cells' : '')+pinNote+viewNote+'</p>'+
       '<div class="scenbody"><div class="scennum">'+
       '<table><tr><th>metric</th><th>value</th><th>vs baseline (95% CI)</th></tr>'+
       '<tr><td>PB <span class="recordtag">record</span></td><td>'+fmt(v.st.record)+pbCmTag(v.rs)+'</td><td>'+surpriseCell+'</td></tr>'+
@@ -4106,8 +4219,12 @@ async function exportScenario(key, btn){
   const {scen, v, clusters} = rec;
   const runs = RUNS.filter(x => x.scen === scen)
                     .sort((a,b) => a.date - b.date);
-  const lines = ['Runs', csvRow(['date', 'score', 'cm360', 'sensScale', 'duration_s', 'reset'])];
-  runs.forEach(r => lines.push(csvRow([r.date.toISOString(), r.score, r.cm360, r.sensScale, r.dur, r.reset ? 1 : 0])));
+  // reset and aborted are the two ways a run is barred from every calculation;
+  // both are here so an export can be checked against what the charts drew.
+  const lines = ['Runs', csvRow(['date', 'score', 'cm360', 'sensScale', 'duration_s',
+                                 'pause_s', 'reset', 'aborted'])];
+  runs.forEach(r => lines.push(csvRow([r.date.toISOString(), r.score, r.cm360, r.sensScale,
+                                       r.dur, r.pause, r.reset ? 1 : 0, r.abort ? 1 : 0])));
   lines.push('', 'Calculations (this window)',
     csvRow(['metric', 'value', 'vs_baseline_pct', 'vs_baseline_se', 'early_baseline']));
   const stRow = (label, valueKey, changeKey) => {

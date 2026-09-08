@@ -137,7 +137,9 @@ def detect_stats_folders():
 #   2  + reset flag
 #   3  reset now requires a score > 0 - a zero-scoring instant end is a real
 #      NeverMiss run, not an abandoned attempt
-ROW_SCHEMA = 3
+#   4  + pause duration, and a file with no challenge context (blank Hash) is
+#      an abandoned attempt rather than a run
+ROW_SCHEMA = 4
 
 
 def cache_path_for(folder):
@@ -228,6 +230,11 @@ def parse_body(text):
             out["sens"] = val
         elif key == "dpi" and "dpi" not in out:
             out["dpi"] = val
+        elif key == "pause duration" and "pause" not in out:
+            # Seconds spent in the pause menu and then resumed. Subtracting it
+            # from elapsed gives actual play time, which is what tells a
+            # legitimately-paused run apart from one that never finished.
+            out["pause"] = val
     if "score" not in out:
         m2 = re.search(r"Score:?[,\s]+([-\d.]+)", text, re.IGNORECASE)
         if m2:
@@ -246,6 +253,23 @@ def parse_body(text):
             elif key in CM_K and out.get("dpi"):
                 out["cm360"] = (360 * 2.54) / (sens * CM_K[key] * out["dpi"])
     return out
+
+
+# KovaaK's stamps every stats file with the scenario's name and a hash of its
+# definition. Three files out of 22,347 here have both fields present but empty,
+# alongside "Challenge Start:,00:00:00.000", no Avg FPS and no " - Challenge - "
+# in the filename: the game wrote a stats file for an attempt that had no
+# challenge loaded. They still carry a score, so nothing downstream can tell they
+# are not runs. A missing Hash line means an older build that never wrote one -
+# only a line that is present and blank is the signal.
+HASH_RE = re.compile(r"^[ \t]*Hash[ \t]*:[ \t]*,?[ \t]*([^\r\n]*)",
+                     re.IGNORECASE | re.MULTILINE)
+
+
+def no_challenge_context(text):
+    """True when the file carries a Hash field that is present but empty."""
+    m = HASH_RE.search(text)
+    return m is not None and not m.group(1).strip()
 
 
 # "Challenge Start" is a time of day; the filename timestamp is when the run
@@ -328,7 +352,14 @@ def parse_file(path, fn):
     # percentage. See runVisible/runUsable in core.js.
     if reset and not (b["score"] > 0):
         reset = False
-    return [scen, ts, b["score"], b.get("cm360"), b.get("scale"), dur, 1 if reset else 0]
+    # Independent of the timing rule, and it has to be: these files report a
+    # Challenge Start of midnight, so their elapsed measurement is nonsense rather
+    # than zero and the rule above cannot see them at all. Flagged whatever they
+    # scored - the reason is structural, not a judgement about the score.
+    if no_challenge_context(text):
+        dur, reset = None, True
+    return [scen, ts, b["score"], b.get("cm360"), b.get("scale"), dur,
+            1 if reset else 0, b.get("pause")]
 
 
 # ---------------------------------------------------------------- index
@@ -468,7 +499,8 @@ class StatsIndex:
                 # parser has fewer columns, and must still load.
                 rows.append([i, row[1], row[2], row[3], row[4],
                              row[5] if len(row) > 5 else None,
-                             row[6] if len(row) > 6 else 0])
+                             row[6] if len(row) > 6 else 0,
+                             row[7] if len(row) > 7 else None])
             return {"version": self.version, "folder": self.folder,
                     "names": names, "rows": rows, "skipped": 0}
 

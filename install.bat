@@ -13,18 +13,26 @@ rem HTML with no dependencies, and a packaged installer would be a bigger,
 rem more opaque artefact than the thing it installs.
 rem ---------------------------------------------------------------------------
 
-call :log "install.bat launched"
+rem Two layouts, one installer: a frozen release keeps the guts in internal\,
+rem the source tree keeps server.py at the top. Detect which this is instead of
+rem assuming the release shape, so the same file works in both (matches
+rem start.bat).
+set "APPDIR=internal"
+if not exist "internal\server.py" if exist "server.py" set "APPDIR=."
+set "LOGDIR=%~dp0%APPDIR%\logs"
+
+call :log "install.bat launched (layout: %APPDIR%)"
 
 echo.
 echo   KovaaK's stats - setup
 echo   ============================================
 echo.
 
-if not exist "internal\server.py" (
-  echo   [X] internal\server.py is missing.
+if not exist "%APPDIR%\server.py" (
+  echo   [X] server.py is missing.
   echo       Keep install.bat next to the internal folder it came with.
   echo.
-  call :log "internal\server.py missing - aborting"
+  call :log "server.py missing in both layouts - aborting"
   pause
   exit /b 1
 )
@@ -150,10 +158,9 @@ endlocal
 exit /b 0
 
 :log
-rem Appends a timestamped line to internal\logs\install.log. Created here
-rem rather than relying on server.py to have made the folder first, since a
-rem broken setup run - by definition - never gets that far.
-set "LOGDIR=%~dp0internal\logs"
+rem Appends a timestamped line to the layout's logs\install.log (LOGDIR is set
+rem at the top). Created here rather than relying on server.py to have made the
+rem folder first, since a broken setup run - by definition - never gets that far.
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" >nul 2>&1
 >>"%LOGDIR%\install.log" echo %DATE% %TIME%  %~1
 exit /b 0

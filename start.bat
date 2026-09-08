@@ -3,18 +3,25 @@ setlocal EnableDelayedExpansion
 title KovaaK's stats
 cd /d "%~dp0"
 
-call :log "start.bat launched"
+rem Two layouts, one launcher: a frozen release keeps the guts in internal\,
+rem the source tree keeps server.py at the top. Detect which this is instead of
+rem assuming the release shape, so the same file works in both.
+set "APPDIR=internal"
+if not exist "internal\server.py" if exist "server.py" set "APPDIR=."
+set "LOGDIR=%~dp0%APPDIR%\logs"
+
+call :log "start.bat launched (layout: %APPDIR%)"
 
 echo.
 echo   KovaaK's stats
 echo   ----------------------------------------
 echo.
 
-if not exist "internal\server.py" (
-  echo   [X] internal\server.py is missing.
+if not exist "%APPDIR%\server.py" (
+  echo   [X] server.py is missing.
   echo       Keep start.bat next to the internal folder it came with.
   echo.
-  call :log "internal\server.py missing - aborting"
+  call :log "server.py missing in both layouts - aborting"
   pause
   exit /b 1
 )
@@ -78,7 +85,7 @@ if not defined PY (
 call :log "using python: !PY!"
 
 echo   Checking for updates...
-!PY! internal\updater.py
+!PY! %APPDIR%\updater.py
 call :log "updater.py exit code %ERRORLEVEL%"
 
 echo   Starting the server. Your browser should open on its own.
@@ -86,7 +93,7 @@ echo   Leave this window open while you use the app.
 echo   Press Ctrl+C (or close this window) to stop.
 echo.
 
-!PY! internal\server.py
+!PY! %APPDIR%\server.py
 set "CODE=%ERRORLEVEL%"
 call :log "server.py exit code !CODE!"
 
@@ -103,10 +110,10 @@ if not "%CODE%"=="0" (
 exit /b %CODE%
 
 :log
-rem Appends a timestamped line to internal\logs\start.log. Created here rather
-rem than relying on server.py to have made the folder first, since a broken
-rem python/server.py run is exactly the case this needs to still capture.
-set "LOGDIR=%~dp0internal\logs"
+rem Appends a timestamped line to the layout's logs\start.log (LOGDIR is set at
+rem the top). Created here rather than relying on server.py to have made the
+rem folder first, since a broken python/server.py run is exactly the case this
+rem needs to still capture.
 if not exist "%LOGDIR%" mkdir "%LOGDIR%" >nul 2>&1
 >>"%LOGDIR%\start.log" echo %DATE% %TIME%  %~1
 exit /b 0

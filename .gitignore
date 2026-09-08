@@ -22,3 +22,9 @@ desktop.ini
 
 # Batch 11 raw-data export - per-install generated output, same as cache/logs.
 SCENARIO DATA EXPORT/
+
+# start.bat is the release-shaped launcher: it runs internal\server.py. Running
+# it from the source tree (where server.py is at the top) means someone made a
+# local internal/ shim - a copy of server.py plus its own config and logs. Local
+# scaffolding, never source, and a stale duplicate of the real server.py.
+internal/

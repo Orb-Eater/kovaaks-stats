@@ -68,6 +68,16 @@ def release_dir(version):
     return d
 
 
+def content_root(folder):
+    """Where server.py and config.json actually live inside `folder`.
+
+    A frozen release nests them under internal/; anything else is flat. Same
+    rule as release.py's content_root, tested on the same file start.bat and
+    install.bat use."""
+    inner = os.path.join(folder, "internal")
+    return inner if os.path.isfile(os.path.join(inner, "server.py")) else folder
+
+
 def make_zip(version, dest_dir):
     """Zip a frozen release, minus anything personal or generated."""
     src = release_dir(version)
@@ -75,16 +85,28 @@ def make_zip(version, dest_dir):
     shutil.copytree(src, staging,
                     ignore=shutil.ignore_patterns(*EXCLUDE))
     # A published build starts with no stats folder, like a fresh install.
-    cfg_path = os.path.join(staging, "config.json")
+    #
+    # Both paths go through content_root. Batch 11 moved config.json down into
+    # internal/ and this function did not follow: it read the port from the top
+    # level, where there is no longer a config, silently fell back to 8765, and
+    # wrote the blank config to the top level, where server.py never looks.
+    # EXCLUDE meanwhile dropped the real internal/config.json from the copy, so
+    # a published build shipped with no config at all and came up on
+    # DEFAULT_CONFIG's 8765 - every published release sharing one origin, and so
+    # one browser cache and localStorage, with every other release and with the
+    # working copy. That is the exact collision release.py's port_for() exists
+    # to end, and it had been silently undone for published builds since v0.8.0.
+    cfg_path = os.path.join(content_root(staging), "config.json")
     port = 8765
     try:
-        with open(os.path.join(src, "config.json"), encoding="utf-8") as f:
+        with open(os.path.join(content_root(src), "config.json"), encoding="utf-8") as f:
             port = json.load(f).get("port", 8765)
     except Exception:
         pass
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump({"stats_folder": "", "port": port,
-                   "scan_interval_seconds": 5, "open_browser": True}, f, indent=2)
+                   "scan_interval_seconds": 5, "open_browser": True,
+                   "auto_update": True}, f, indent=2)
     zip_base = os.path.join(dest_dir, "kovaaks-stats-%s" % version)
     return shutil.make_archive(zip_base, "zip", dest_dir,
                                os.path.basename(staging))

@@ -5,6 +5,24 @@ Newest first. Each frozen release carries a copy of this file plus a
 
 ---
 
+## Unreleased
+
+### The two cm cards say what to do, not who lost
+
+- **"Worst performing cm" is now "Need to practice cm"**, and **"Worst cm
+  range" is now "Need to practice cm range"**. Same figures, same minimums,
+  same tooltip text - only the word on the card changed. A sensitivity you have
+  played less is not a bad sensitivity, and the card was reading as a verdict on
+  the setting rather than as the suggestion it is.
+- The card title doubles as the key its tooltip is looked up under, so both were
+  renamed together; nothing else in the app reads those keys.
+- This is the wording SVC settled on, so the two apps no longer disagree about
+  the same card.
+- README's cm/360 bullet followed: it advertised "best and worst performing
+  sensitivity bands", which named a card that no longer exists.
+
+---
+
 ## v0.12.0 - 2026-09-09
 
 **TL;DR - four files in your stats folder were not runs, and three of them were

@@ -1849,9 +1849,9 @@ function render(){
     'Vs prev timeframe': 'This window’s Typical change minus the same figure for the equal-length window before it. Positive means your rate of improvement is accelerating.',
     'Mean spread (CV)': 'Average coefficient of variation (stdev ÷ mean) across shown scenarios — lower means scores cluster tighter around your average.',
     'Best performing cm': 'The cm/360 with the highest average score relative to your own typical average across all cms (minimum 10 runs across 2+ scenarios in this window, ignoring the Range/Specific filter above so all cms are compared). The side % is how far above your typical average that cm performs.',
-    'Worst performing cm': 'The cm/360 with the lowest average score relative to your own typical average across all cms (minimum 10 runs across 2+ scenarios in this window, ignoring the Range/Specific filter above so all cms are compared).',
+    'Need to practice cm': 'The cm/360 with the lowest average score relative to your own typical average across all cms (minimum 10 runs across 2+ scenarios in this window, ignoring the Range/Specific filter above so all cms are compared).',
     'Best cm range': 'The cm/360 with the highest average score relative to your own typical average (same rules as Best performing cm), but grouped into ranges built from your actual data instead of one exact cm — consecutive cms you\'ve used get merged whenever they\'re within ~10% of each other (e.g. 35→38cm merges, 35→55cm doesn\'t), so this pools more data per bucket and is more resistant to a handful of stray runs skewing the result.',
-    'Worst cm range': 'The cm range with the lowest average score relative to your own typical average, same stability advantage as Best cm range.',
+    'Need to practice cm range': 'The cm range with the lowest average score relative to your own typical average, same stability advantage as Best cm range.',
     'Fast cm (<50cm)': 'Your average score across all cm/360 settings faster than 50cm, relative to your own typical average (minimum 3 runs per scenario at a fast cm).',
     'Slow cm (>50cm)': 'Your average score across all cm/360 settings slower than 50cm, relative to your own typical average (minimum 3 runs per scenario at a slow cm).',
     'Benchmark ceiling change': 'CALCULATIONS-V4 §10.1: your peak performance on this benchmark suite, on its own rank scale (each scenario\'s raw score converted to a continuous rank-index before averaging, so scenarios with different scales combine fairly). One value per real-world session (all suite scenarios played that session, averaged), then Harrell-Davis p90 with n-matching, same as the per-scenario Ceiling. This is the app\'s primary metric — the suite\'s ranks are a fixed, externally-defined scale, so this effect size can\'t be inflated by cherry-picking your own best scenario/cm the way a self-defined baseline can.',
@@ -2174,9 +2174,9 @@ function render(){
   // cm-specific cards live inside the cm/360 section so the headline row stays clean.
   const cmCards = [];
   if(bestCm) cmCards.push(['Best performing cm', bestCm.cm+'cm', '', sideBadge(bestCm.avgPct-100)]);
-  if(worstCm) cmCards.push(['Worst performing cm', worstCm.cm+'cm', '', sideBadge(worstCm.avgPct-100)]);
+  if(worstCm) cmCards.push(['Need to practice cm', worstCm.cm+'cm', '', sideBadge(worstCm.avgPct-100)]);
   if(bestRange) cmCards.push(['Best cm range', bestRange.label, '', sideBadge(bestRange.avgPct-100)]);
-  if(worstRange) cmCards.push(['Worst cm range', worstRange.label, '', sideBadge(worstRange.avgPct-100)]);
+  if(worstRange) cmCards.push(['Need to practice cm range', worstRange.label, '', sideBadge(worstRange.avgPct-100)]);
   if(fastSlow && (fastSlow.fast || fastSlow.slow)){
     cmCards.push(['Fast cm (<50cm)', fastSlow.fast ? '<50cm' : '—', '', fastSlow.fast ? sideBadge(fastSlow.fast.avgPct-100) : '']);
     cmCards.push(['Slow cm (>50cm)', fastSlow.slow ? '>50cm' : '—', '', fastSlow.slow ? sideBadge(fastSlow.slow.avgPct-100) : '']);

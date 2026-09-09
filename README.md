@@ -139,12 +139,12 @@ Requires **Python 3.8+**. No pip install, no dependencies — standard library o
   detect a 5% change at *your* spread, and refuses to dress up an under-powered
   number as a finding.
 - **cm/360 analysis** — filter by exact sensitivity, by range, or by favourites;
-  best and worst performing sensitivity bands; per-cm PBs. Runs at different
-  sensitivities are not the same distribution, so pooling them is treated as a
-  bug, not a view option. Clicking a cm chip under a chart narrows **that
-  scenario** to that sensitivity and nothing else on the page — and recomputes
-  it properly, confidence intervals and all, rather than filtering the picture
-  and leaving the numbers behind.
+  your best sensitivity band and the one that needs practice; per-cm PBs.
+  Runs at different sensitivities are not the same distribution, so pooling
+  them is treated as a bug, not a view option. Clicking a cm chip under a
+  chart narrows **that scenario** to that sensitivity and nothing else on the
+  page — and recomputes it properly, confidence intervals and all, rather
+  than filtering the picture and leaving the numbers behind.
 - **A closer look at one scenario** — every card is expanded by default, and
   **Full width** pushes a single card out to 1920px with the numbers beside the
   chart. The chart keeps its 2:1 aspect there: stretching it to fill the width

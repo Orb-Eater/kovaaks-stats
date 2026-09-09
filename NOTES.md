@@ -139,6 +139,20 @@ must actually differ. 13 stubs are in play on simple.html.
    an offset term (Splitgate, Paladins, Battlefield, GTA 5, PUBG) are
    **deliberately excluded** — better no value than a silently wrong one.
    Current coverage: 100% of runs (19,646 cm/360 + 1,004 Valorant + 803 Quake/Source).
+5. **A blank `Hash:` means the file describes no challenge at all.** Three files
+   out of 22,347 carry a present-but-*empty* `Scenario:` and `Hash:`, alongside
+   `Challenge Start:,00:00:00.000`, no `Avg FPS` and no ` - Challenge - ` in the
+   filename: KovaaK's wrote a stats file for an attempt with nothing loaded.
+   They still carry a score, so nothing downstream can tell they are not runs.
+   A **missing** Hash line is a different thing - an older build that never wrote
+   one - and must not be treated as the signal. Only present-and-empty counts.
+   All 22,347 files here have the line, so requiring it costs nothing.
+6. **`Pause Duration` is written only once you *resume*.** Quit from the pause
+   menu instead and the field stays 0 while the file's elapsed time absorbs the
+   whole wall clock you sat there - one run here reads 505s on a 60s scenario.
+   So the field is not "time paused", it is "time paused and then resumed", and
+   `elapsed - pause` is therefore actual play time. `Pause Count` is written
+   either way, so it cannot distinguish the two on its own.
 
 The same table exists twice — `CM_K` in `server.py` and in `core.js`. Keep them
 in sync if you touch either.
@@ -261,15 +275,36 @@ prove it). But two builds can still contaminate each other:
 
 - `core.js` is served by `SimpleHTTPRequestHandler` with `Last-Modified` and **no
   `Cache-Control`**, so browsers cache it heuristically.
-- `release.py` assigns ports by next-free-slot, so the *first* release in any copy
-  of this folder gets 8801. Two builds on two drives then share the origin
-  `http://127.0.0.1:8801` - and share its cache and its `localStorage`
+- `release.py` **used to** assign ports by next-free-slot, so the *first* release
+  in any copy of this folder got 8801. Two builds on two drives then shared the
+  origin `http://127.0.0.1:8801` - and shared its cache and its `localStorage`
   (`kva_break`, `kva_favcms`).
 
-Result: an old build can appear to have new behaviour. The footer build stamp
-(v0.0.8) makes this visible; the actual fix is queued as Batch 5 in
-`planning/BACKLOG.md` - `no-store` on app assets, version-derived ports, and
-version-namespaced localStorage keys.
+Result: an old build could appear to have new behaviour. The footer build stamp
+(v0.0.8) made it visible; `port_for()` (v0.1.0) fixed it properly by deriving the
+port from the version string, so one origin means exactly one build on every
+machine, forever.
+
+**And then it was silently undone for the builds that actually matter.** The
+Batch 11 tidy-up moved `config.json` into `internal/`, and `publish.py`'s
+`make_zip` did not follow: it read the port from the release's top level, found
+no config there, fell back to a hard-coded 8765, and wrote its blank config back
+to the top level where `server.py` never looks. `EXCLUDE` had meanwhile stripped
+the real `internal/config.json` out of the copy - so every published zip from
+v0.8.0 to v0.12.0's first upload shipped with **no config at all** and came up on
+`DEFAULT_CONFIG`'s 8765. Every published release, sharing one origin with every
+other published release and with the working copy. Exactly the failure
+`port_for()` was written to end, reintroduced one level down.
+
+Fixed 2026-09-09: both paths go through a `content_root()` matching release.py's.
+**The lesson is the general one** - a guarantee enforced in one script is not
+enforced in the pipeline. `release.py --verify` proves a *freeze* matches its
+source; nothing proved the *zip* matched the freeze. If you touch either script,
+unzip what was published and look inside it. That is how this was found, and it
+had been true for four releases.
+
+Note this also means the published `base` (v0.10.0 at time of writing) still has
+it. Promoting a build made after the fix is the only way to clear it.
 
 ## Reading the source PDFs
 
@@ -354,15 +389,77 @@ warning.
 
 The row format grew a column for this, so `ROW_SCHEMA` in server.py was bumped to
 2. The disk cache stores rows verbatim; without the schema check every
-already-parsed run would have stayed in the old shape forever.
+already-parsed run would have stayed in the old shape forever. It is 4 as of
+v0.12.0; bump it whenever a row changes shape, and accept the one slow start.
+
+## Runs that never finished, beyond the restart rule (v0.12.0)
+
+The Challenge Start rule above is correct and unchanged. It is just not the only
+case, and the other two are invisible to it.
+
+**A file with no challenge context.** See parser quirk 5. Because these report a
+Challenge Start of midnight, their elapsed measurement is nonsense rather than
+zero, so the timing rule cannot see them *at all* - it is not a threshold
+problem and widening `RESET_MAX_SEC` would not help. `no_challenge_context()` in
+server.py flags them structurally, on the blank `Hash`, whatever they scored:
+the reason is the file's shape, not a judgement about the number. Of the three
+here, two were feeding every calculation and the third was hidden only by luck,
+because it happened to land inside a warm-up window.
+
+**Quitting from the pause menu.** See parser quirk 6. Nothing server-side can
+see this either: the file is well-formed and its score is real. What catches it
+is the scenario's own shape - most scenarios are fixed-length, so their play
+times (`elapsed - pause`) have a mode nearly every run sits on, and a run far
+off it did not finish. `markAborts()` in core.js, with `ABORT_MIN_RUNS: 20`,
+`ABORT_TOL_SEC: 2`, `ABORT_FIXED_SHARE: 0.90` and `ABORT_TOL_FRAC: 0.20`.
+
+Measured over the full 22,339-run corpus: 223 scenarios qualify as fixed-length,
+covering 12,959 runs, and **exactly one run is flagged** - the 505s file. The
+tuning was chosen against that:
+
+    tol 1s  ->  2 flagged   (a 58s-vs-60s false positive)
+    tol 2s  ->  1 flagged   <- shipped
+    tol 3s  ->  1 flagged
+    tol 5s  ->  41 flagged, and they look like ordinary runs
+
+`ABORT_TOL_FRAC` costs nothing at any setting from 0 to 50% on this data; it is
+there so a scenario whose author *changed* its duration cannot have its old runs
+called aborts. **Subtracting the pause is what makes this work at all** - an
+earlier draft compared raw elapsed against the mode and flagged 218 perfectly
+normal runs that had simply been paused.
+
+**`Avg FPS` was measured as an alternative and rejected. Do not re-litigate it.**
+Missing / zero / absurd FPS marks 47 runs, the Challenge Start rule marks 45,
+and they overlap on 44. FPS does find two of the no-challenge files, which is
+real - but it **misses a genuine restart** the timing rule catches
+(`180 muscle memory - Challenge - 2026.04.06-01.26.33`), and the field is not
+guaranteed across KovaaK's builds. The blank `Hash` signature finds the same
+files with neither drawback. The two rules stay separate and complementary; FPS
+is not a replacement for either.
+
+Effect on the one scenario that had all of them, full history, warm-up excluded:
+typical (trimmed mean) 10299.2 -> 10333.5, floor (p10) 8752.5 -> 8811.0, and
+**CV 15.99% -> 9.75%**. CV feeds `requiredN()` and the `powered` flag, so a
+handful of phantom runs was distorting more than the visible numbers.
+
+Scenario CSV exports carry `pause_s` and `aborted` next to `reset`, so an export
+can be checked against what the charts actually drew.
 
 ## Zero-score runs vs restarts
 
-Two different questions, and conflating them is what v0.1.0 got wrong:
+Two different questions, and conflating them is what v0.1.0 got wrong. As of
+v0.12.0 there are three, and the split still matters for the same reason:
 
-- `runVisible(r)` - **did you play this run?** Only a restart fails. Drives the
-  charts and the run counts.
+- `runReal(r)` - **did this run happen at all?** Fails for a restart or an
+  abandoned attempt. Never toggleable: there is no reading of the data where
+  including one is correct.
+- `runVisible(r)` - **should it be in the measurements?** `runReal` plus the
+  warm-up and re-familiarisation toggles. Drives the charts and the run counts.
 - `runUsable(r)` - **may it enter a percentage?** `runVisible && score > 0`.
+
+`runReal` exists because "Recently played" needed a pool that keeps the runs the
+toggles hide without keeping the ones that never happened - see the section on
+it at the end of this file.
 
 A zero-length run is only classed as a restart when it actually *scored*
 something. On a NeverMiss, missing the first shot ends the run inside its opening
@@ -375,12 +472,14 @@ timing alone, and it should stay visible. Splitting on score separates them:
 141 of those zeros previously had a real duration and were being averaged into
 the statistics, dragging the floor down for a reason unrelated to skill.
 
-`getActivePool()` returns two pools. `pool` feeds every percentage; `displayPool`
-is the same set plus the zeros and feeds charts only. `computeTrends` attaches
-`rsAll` (display) alongside `rs` (statistics) and a `zeroRuns` count. `spark()`
-filters the zeros back out before computing the scale, then draws them pinned to
-the axis floor as hollow marks - the axis must come from real runs, or a single 0
-squashes everything into the top of the frame.
+`getActivePool()` returns three pools. `pool` feeds every percentage;
+`displayPool` is the same set plus the zeros and feeds charts only; `recencyPool`
+is for the scenario list alone and is described at the end of this file.
+`computeTrends` attaches `rsAll` (display) alongside `rs` (statistics) and a
+`zeroRuns` count. `spark()` filters the zeros back out before computing the
+scale, then draws them pinned to the axis floor as hollow marks - the axis must
+come from real runs, or a single 0 squashes everything into the top of the
+frame.
 
 ## Benchmarks: what was NOT fixed
 
@@ -464,10 +563,15 @@ title and body; `WHATS-NEW.txt` becomes the release notes automatically.
 run and exits. It never pushes commits: that is `git push`, deliberately separate.
 
 **Nothing personal ships.** `make_zip` drops `cache/`, `logs/`, `config.json` and
-`__pycache__`/`.browser-opened`, then writes a fresh `config.json` with an empty
-`stats_folder`. Belt and braces: `release.py` already writes a blank one at
-freeze time. It used to copy the working copy's folder, which baked one
-person's path into every build and overrode the choice the user of that release
+`__pycache__`/`.browser-opened`, then writes a fresh `config.json` - into
+`content_root(staging)`, i.e. `internal/`, which is the only place `server.py`
+looks - with an empty `stats_folder`, the release's own derived port, and
+`auto_update`. `EXCLUDE` matches at every depth, so it removes the frozen
+`internal/config.json` too; the rewrite is what puts one back, and writing it to
+the wrong level therefore ships a build with none. Belt and braces on the
+personal path itself: `release.py` already writes a blank one at freeze time.
+It used to copy the working copy's folder, which baked one person's path into
+every build and overrode the choice the user of that release
 had already made.
 
 ## What the app promises about privacy
@@ -849,3 +953,43 @@ The text is used twice, so it deliberately does **not** start with the row name:
 the dash's tooltip prefixes `label + ' - '` itself, and the drawer caveat lists
 the rows. An earlier version returned `"Ceiling (p90) needs at least..."` and
 the tooltip read *"Ceiling (p90) - Ceiling (p90) needs at least 15 runs"*.
+
+## "Recently played" is a different question from "measured" (v0.12.0)
+
+The scenario list was built from the same pool as every number on the page, so a
+scenario whose only runs in the window were warm-up or re-familiarisation had no
+card at all. On a 30-day window that hid **199 of the 714 scenarios actually
+played** - which is to say, the first two or three runs of a session, which is
+precisely what someone sorting by "recently played" is looking for.
+
+The fix is a second pool, not a loosened filter. `getActivePool()` returns
+`recencyPool` alongside `pool` and `displayPool`: same cm filtering, same
+`score > 0` rule, built from `RUNS.filter(runReal)` instead of
+`RUNS.filter(runVisible)`. Restarts and aborts are still gone. **Nothing about
+any calculation changed** - the toggles do exactly what they did to every number,
+and `recencyPool` has precisely one consumer.
+
+Two details that are easy to get wrong if this is ever rewritten:
+
+- **Sort by the last run you actually played**, including the hidden ones.
+  Sorting the extra cards by their *visible* runs makes a scenario whose newest
+  runs are all warm-up sort by an older date than the one printed on its own
+  card, which looks like a bug and is one.
+- **Say why the card is there.** The 201 cards that exist only because of this
+  carry a "warm-up / re-fam runs only" marker. Their numbers come from exactly
+  the runs the rest of the page is ignoring, so a card that looked like any other
+  card would be quietly lying about what it measured.
+
+515 of 714 scenarios had a card before; 708 do now. The six still missing are
+removed by the cm outlier filter (`OUTLIER_MIN_SHARE`), because every run they
+have in the window sits at a cm value with too few runs to cluster - a different,
+deliberate, user-toggleable exclusion. Do not "fix" that here.
+
+**Reported alongside this, and not a bug:** the warm-up and re-familiarisation
+toggles look like they do nothing to the scenario graphs. They work - toggling
+moves dot counts live - but on 33 of the 105 scenarios with 10+ runs in a 30-day
+window they move **zero** runs, because no such run exists there, and on the
+largest cards it is 3-6% of the dots (2-5 of 70-110). Median across scenarios
+that move at all: 14.3%. The effect is concentrated in the small cards, which is
+inherent to what the toggles select, not a wiring fault. Measured, not guessed -
+don't go hunting for a fault in the toggle wiring.

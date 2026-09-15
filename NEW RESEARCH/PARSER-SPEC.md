@@ -2,7 +2,9 @@
 
 > Derived from 10 labelled files, 2024-11-11 to 2026-09-02, five of them
 > hand-labelled as resets. Every rule below was validated against that set.
-> Resolves blockers §0.1 and §0.3 of [V3.2-PATCH.md](V3.2-PATCH.md).
+> Originally written to resolve blockers §0.1 and §0.3 of `V3.2-PATCH.md`, which is **not in
+> this repository** — the reference is historical, not a link. §1.2's task-type claim was
+> retracted 2026-09-11; the corrected copy of record is `SVC\docs\PARSER-SPEC.md`.
 
 ---
 
@@ -51,8 +53,10 @@ on `[^\r\n]*`, never `.*$` with a naive `$`.
 
 ### 1.2 Fields vary by scenario
 
-Clicking scenarios populate `Kills`, `Avg TTK`, `Directs`. Tracking scenarios leave them
-at zero and log no kill rows. Treat every field as optional. The four that must be present
+Whether `Kills`, `Avg TTK`, `Directs` and kill rows are populated is **set by the scenario
+creator**, not by task type. A tracking scenario may log kills; a clicking scenario may not.
+**Do not infer task type from these fields** (retracted 2026-09-11; the original claim came
+from a six-file sample). Treat every field as optional. The four that must be present
 are `Score`, the filename timestamp, `Sens Scale` + `Horiz Sens`, and `Avg FPS`.
 
 ---

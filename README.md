@@ -1,5 +1,8 @@
-# SVC
-**Stats With Consistency**
+# ~~SVC~~
+~~**Stats With Consistency**~~
+Kovaaks-stats - Not being updated anymore, superseded by [SVC](https://github.com/Orb-Eater/SVC-releases) - Currently private repo but public release. No plans currently to make the app for public use, but it's there if you want to have a look. (Windows flags download ofc)
+
+------
 
 _(Leaving all the writing mistakes for now, enjoy broken english)_
 
